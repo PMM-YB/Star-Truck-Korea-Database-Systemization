@@ -1008,59 +1008,96 @@ def main():
             missing = int(len(comp))
         st.metric('SAM 매핑 없음', missing)
 
-        # Prepare urgent orders within 60 days (inclusive)
+        # ── Prepare data splits ──────────────────────────────────────────────
+        cols_table = ['Commission no.', 'Baumuster', 'Until Dealine', 'Changeability Date',
+                      'Model', 'Model_norm', 'Only_in_SAM', 'Only_in_WINGS']
+
         if 'Until Dealine' in comp.columns:
-            # Keep the original display values (e.g. 'Passed') and create a numeric helper for filtering
             comp['_UntilDealine_days'] = pd.to_numeric(comp['Until Dealine'], errors='coerce')
-            urgent = comp[(comp['_UntilDealine_days'].notna()) & (comp['_UntilDealine_days'] >= 0) & (comp['_UntilDealine_days'] <= 60)].copy()
+            very_urgent = comp[
+                (comp['_UntilDealine_days'].notna()) &
+                (comp['_UntilDealine_days'] >= 0) &
+                (comp['_UntilDealine_days'] <= 14)
+            ].copy().sort_values('_UntilDealine_days', ascending=True)
+            urgent = comp[
+                (comp['_UntilDealine_days'].notna()) &
+                (comp['_UntilDealine_days'] >= 0) &
+                (comp['_UntilDealine_days'] <= 60)
+            ].copy().sort_values('_UntilDealine_days', ascending=True)
         else:
+            very_urgent = pd.DataFrame()
             urgent = pd.DataFrame()
 
-        if not urgent.empty:
-            st.markdown('<h2 style="color:red">Order Correction Needed (Urgent, within 60 days)</h2>', unsafe_allow_html=True)
-            # sort urgent by remaining days ascending (smallest first)
-            urgent = urgent.sort_values(by='_UntilDealine_days', ascending=True, na_position='last')
-            # show compact table for urgent items with Changeability Date and SAM first
-            cols = ['Commission no.', 'Baumuster', 'Until Dealine', 'Changeability Date', 'Model', 'Model_norm', 'Only_in_SAM', 'Only_in_WINGS']
-            available = [c for c in cols if c in urgent.columns]
-            urgent_display = urgent[available].reset_index(drop=True)
-            st.caption("행을 클릭하면 해당 Commission의 옵션 코드 상세 설명이 팝업으로 표시됩니다.")
-            urgent_event = st.dataframe(
-                urgent_display,
+        # ── Section 1: Urgent Correction Needed (within 2 weeks) ─────────────
+        st.markdown('<h2 style="color:red">🚨 Urgent Correction Needed (within 2 weeks)</h2>', unsafe_allow_html=True)
+        if not very_urgent.empty:
+            available = [c for c in cols_table if c in very_urgent.columns]
+            very_urgent_display = very_urgent[available].reset_index(drop=True)
+            st.caption("행을 클릭하면 해당 Commission의 옵션 코드 상세 설명이 표시됩니다.")
+            vu_event = st.dataframe(
+                very_urgent_display,
                 on_select="rerun",
                 selection_mode="single-row",
                 use_container_width=True,
             )
-            if urgent_event.selection.rows:
-                uidx = urgent_event.selection.rows[0]
+            if vu_event.selection.rows:
+                uidx = vu_event.selection.rows[0]
+                urow = very_urgent_display.iloc[uidx]
+                show_code_details(
+                    str(urow.get("Commission no.", "")),
+                    str(urow.get("Only_in_SAM", "")),
+                    str(urow.get("Only_in_WINGS", "")),
+                )
+            st.download_button(
+                '📥 Urgent (2주 이내) Excel 다운로드',
+                data=to_excel_bytes(very_urgent_display),
+                file_name='urgent_2weeks.xlsx',
+                key='dl_very_urgent',
+            )
+        else:
+            st.success("2주 이내 긴급 수정 필요 건 없음")
+
+        st.divider()
+
+        # ── Section 2: Changeability within 60 days ──────────────────────────
+        st.markdown('<h2 style="color:black">Changeability within 60 days</h2>', unsafe_allow_html=True)
+        if not urgent.empty:
+            available = [c for c in cols_table if c in urgent.columns]
+            urgent_display = urgent[available].reset_index(drop=True)
+            st.caption("행을 클릭하면 해당 Commission의 옵션 코드 상세 설명이 표시됩니다.")
+            u_event = st.dataframe(
+                urgent_display,
+                on_select="rerun",
+                selection_mode="single-row",
+                use_container_width=True,
+                key="df_60days",
+            )
+            if u_event.selection.rows:
+                uidx = u_event.selection.rows[0]
                 urow = urgent_display.iloc[uidx]
                 show_code_details(
                     str(urow.get("Commission no.", "")),
                     str(urow.get("Only_in_SAM", "")),
                     str(urow.get("Only_in_WINGS", "")),
                 )
-
-        st.subheader('상세 비교(샘플)')
-        st.caption("행을 클릭하면 해당 Commission의 옵션 코드 상세 설명이 팝업으로 표시됩니다.")
-
-        display_df = comp.head(200)
-        event = st.dataframe(
-            display_df,
-            on_select="rerun",
-            selection_mode="single-row",
-            use_container_width=True,
-        )
-
-        if event.selection.rows:
-            row_idx = event.selection.rows[0]
-            selected = display_df.iloc[row_idx]
-            show_code_details(
-                str(selected.get("Commission no.", "")),
-                str(selected.get("Only_in_SAM", "")),
-                str(selected.get("Only_in_WINGS", "")),
+            st.download_button(
+                '📥 Changeability (60일 이내) Excel 다운로드',
+                data=to_excel_bytes(urgent_display),
+                file_name='changeability_60days.xlsx',
+                key='dl_urgent',
             )
+        else:
+            st.info("60일 이내 수정 필요 건 없음")
 
-        st.download_button('Excel로 다운로드', data=to_excel_bytes(comp), file_name='wings_sam_comparison.xlsx')
+        st.divider()
+
+        # ── Overall Excel download ────────────────────────────────────────────
+        st.download_button(
+            '📥 전체 데이터 Excel 다운로드',
+            data=to_excel_bytes(comp),
+            file_name='wings_sam_comparison_all.xlsx',
+            key='dl_all',
+        )
 
 
 if __name__ == '__main__':
