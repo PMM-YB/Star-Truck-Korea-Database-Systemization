@@ -629,9 +629,8 @@ def parse_wings(file) -> pd.DataFrame:
         if pd.isna(text):
             return set()
         text = str(text)
-        # Find 3-4 char tokens but require at least one digit (filter out words like WITH, NOT)
         raw_tokens = re.findall(r"[A-Z0-9]{3,4}", text.upper())
-        return set(t for t in raw_tokens if any(ch.isdigit() for ch in t))
+        return set(raw_tokens)
 
     # Extract codes from specified columns
     code_cols_to_use = []
@@ -728,9 +727,21 @@ def _parse_single_sam_file(file_obj, name: str, mapping: dict, log_fn=None):
                 if t.text
             )
 
-            codes_text = full_text.split('Standard equipment')[-1] if 'Standard equipment' in full_text else full_text
-            raw_codes = re.findall(r'\b[A-Z0-9]{3,4}\b', codes_text.upper())
-            codes = set(c for c in raw_codes if any(ch.isdigit() for ch in c))
+            # Find equipment section start
+            for marker in ('Equipment overview', 'Standard equipment'):
+                if marker in full_text:
+                    eq_text = full_text.split(marker)[-1]
+                    break
+            else:
+                eq_text = full_text
+
+            eq_upper = eq_text.upper()
+            # Primary: semicolon-delimited codes (Standard + Special equipment boxes)
+            codes = set(re.findall(r'([A-Z][A-Z0-9]{2,4})\s*;', eq_upper))
+            # Secondary: Additional equipment section — any 3-4 char code before 2+ spaces (code + description format)
+            if 'ADDITIONAL EQUIPMENT' in eq_upper:
+                add_text = eq_upper.split('ADDITIONAL EQUIPMENT')[-1]
+                codes |= set(re.findall(r'\b([A-Z][A-Z0-9]{2,4})\b', add_text))
 
             for pattern in [
                 r'Vehicle type[:\s]+([0-9]{4}[A-Z]{1,3})',
@@ -1030,12 +1041,6 @@ def main():
 
         st.subheader('요약')
         st.metric('Commission 수', len(comp))
-        # count rows without SAM match
-        if 'SAM_matched' in comp.columns:
-            missing = int((~comp['SAM_matched']).sum())
-        else:
-            missing = int(len(comp))
-        st.metric('SAM 매핑 없음', missing)
 
         # ── Prepare data splits ──────────────────────────────────────────────
         cols_table = ['Commission no.', 'Baumuster', 'Until Dealine', 'Changeability Date',
