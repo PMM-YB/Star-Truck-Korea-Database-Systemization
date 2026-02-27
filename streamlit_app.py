@@ -2340,7 +2340,7 @@ def main():
         p for p in sam_folder.glob('*')
         if p.suffix.lower() in valid_exts and not p.name.startswith('.')
     )
-    mtime_key = 'v2,' + ','.join(f'{p.name}:{p.stat().st_mtime}' for p in sam_file_paths)
+    mtime_key = 'v3,' + ','.join(f'{p.name}:{p.stat().st_mtime}' for p in sam_file_paths)
     sam_map = _cached_sam_map(str(sam_folder), mtime_key)
 
     if sam_map:
