@@ -2047,10 +2047,10 @@ def _parse_single_sam_file(file_obj, name: str, mapping: dict, log_fn=None):
                             codes.add(m.group(1))
 
             for pattern in [
-                r'Vehicle type[:\s]+([0-9]{4}[A-Z]{1,3})',
-                r'Type[:\s]+([0-9]{4}[A-Z]{1,3})',
-                r'Model[:\s]+([0-9]{4}[A-Z]{1,3})',
-                r'Baumuster[:\s]+([0-9]{4}[A-Z]{1,3})'
+                r'Vehicle type[:\s]+([0-9]{4}\s*[A-Z]{1,3})',
+                r'Type[:\s]+([0-9]{4}\s*[A-Z]{1,3})',
+                r'Model[:\s]+([0-9]{4}\s*[A-Z]{1,3})',
+                r'Baumuster[:\s]+([0-9]{4}\s*[A-Z]{1,3})'
             ]:
                 m = re.search(pattern, full_text, re.IGNORECASE)
                 if m:
@@ -2071,7 +2071,7 @@ def _parse_single_sam_file(file_obj, name: str, mapping: dict, log_fn=None):
 
     if not model_raw:
         fname_upper = name.upper()
-        m = re.search(r'(\d{4}[A-Z]{1,3}(?:[LSK])?)', fname_upper)
+        m = re.search(r'(\d{4}\s*[A-Z]{1,3})', fname_upper)
         if m:
             model_raw = m.group(1)
 
