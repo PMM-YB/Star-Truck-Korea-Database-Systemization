@@ -2359,9 +2359,9 @@ def main():
         _set_logo_from_path(logo_path)
 
     # ── Company logo ──────────────────────────────────────────────────────────
-    logo_file = Path('Star Truck Korea LOGO.jpg')
+    logo_file = Path('MB Star_Logo_black.png')
     if logo_file.exists():
-        st.image(str(logo_file), width=320)
+        st.image(str(logo_file), width=280)
 
     st.title('WINGS ↔ SAM 옵션 코드 비교 대시보드')
 
