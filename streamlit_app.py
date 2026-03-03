@@ -2046,13 +2046,16 @@ def _parse_single_sam_file(file_obj, name: str, mapping: dict, log_fn=None):
                         if m:
                             codes.add(m.group(1))
 
+            # Pre-process: uppercase + strip 'DNA' so '2663 LSDNA' -> '2663 LS'
+            # without the DNA suffix the next XML field ('Drivetrain') starts
+            # right after the model letters, so a lookahead terminates the capture.
+            full_text_model = re.sub(r'DNA', '', full_text, flags=re.IGNORECASE).upper()
             for pattern in [
-                r'Vehicle type[:\s]+([0-9]{4}\s*[A-Z]{1,3})',
-                r'Type[:\s]+([0-9]{4}\s*[A-Z]{1,3})',
-                r'Model[:\s]+([0-9]{4}\s*[A-Z]{1,3})',
-                r'Baumuster[:\s]+([0-9]{4}\s*[A-Z]{1,3})'
+                r'VEHICLE\s*TYPE[:\s]+([0-9]{4}\s*[A-Z]{1,3})(?=DRIVETRAIN|SUBCATEGORY|BAUMUSTER|\s|[0-9]|$)',
+                r'TYPE[:\s]+([0-9]{4}\s*[A-Z]{1,3})(?=DRIVETRAIN|SUBCATEGORY|BAUMUSTER|\s|[0-9]|$)',
+                r'MODEL[:\s]+([0-9]{4}\s*[A-Z]{1,3})(?=DRIVETRAIN|SUBCATEGORY|BAUMUSTER|\s|[0-9]|$)',
             ]:
-                m = re.search(pattern, full_text, re.IGNORECASE)
+                m = re.search(pattern, full_text_model)
                 if m:
                     model_raw = m.group(1).strip()
                     break
@@ -2340,7 +2343,7 @@ def main():
         p for p in sam_folder.glob('*')
         if p.suffix.lower() in valid_exts and not p.name.startswith('.')
     )
-    mtime_key = 'v3,' + ','.join(f'{p.name}:{p.stat().st_mtime}' for p in sam_file_paths)
+    mtime_key = 'v4,' + ','.join(f'{p.name}:{p.stat().st_mtime}' for p in sam_file_paths)
     sam_map = _cached_sam_map(str(sam_folder), mtime_key)
 
     if sam_map:
