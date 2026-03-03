@@ -2124,7 +2124,7 @@ def compare(df_wings: pd.DataFrame, sam_map: dict) -> pd.DataFrame:
         wings_codes = set(r['WINGS_codes'] or [])
         model_norm = _normalize_model(model_raw)
 
-        # Detect PTO: any WINGS code whose description contains "PTO"
+        # Initial PTO detection: any WINGS code whose description contains "PTO"
         is_pto = any('PTO' in OPTION_CODE_MAP.get(c, '').upper() for c in wings_codes)
 
         def _split_model(s: str):
@@ -2144,12 +2144,12 @@ def compare(df_wings: pd.DataFrame, sam_map: dict) -> pd.DataFrame:
                 return data['codes'], data['file']
             return set(), ''
 
-        # Look up SAM codes using normalized model (exact match first)
+        # Look up SAM entry using normalized model (exact match first)
         sam_entry = sam_map.get(model_norm, {})
-        sam_codes, sam_file = _get_sam_data(sam_entry, is_pto)
+        _probe_codes, _ = _get_sam_data(sam_entry, is_pto)
 
         # If no exact match, try relaxed matching: numeric prefix must match AND letter suffix must match
-        if not sam_codes:
+        if not _probe_codes:
             num_norm, suf_norm = _split_model(model_norm)
             for k, v in sam_map.items():
                 try:
@@ -2159,8 +2159,19 @@ def compare(df_wings: pd.DataFrame, sam_map: dict) -> pd.DataFrame:
                 num_k, suf_k = _split_model(k_norm)
                 # numeric prefixes must match AND suffixes must match (both empty counts as match)
                 if k_norm == model_norm or (num_k == num_norm and suf_k == suf_norm):
-                    sam_codes, sam_file = _get_sam_data(v, is_pto)
+                    sam_entry = v
                     break
+
+        # Refine PTO detection: if both PTO/non-PTO SAM variants exist,
+        # check whether WINGS contains any code that only appears in the PTO SAM file.
+        # This catches cases where PTO codes (e.g. N1G, Z5M) are present in WINGS
+        # but their OPTION_CODE_MAP description doesn't include the word "PTO".
+        if not is_pto and isinstance(sam_entry, dict) and True in sam_entry and False in sam_entry:
+            pto_unique = sam_entry[True]['codes'] - sam_entry[False]['codes']
+            if wings_codes & pto_unique:
+                is_pto = True
+
+        sam_codes, sam_file = _get_sam_data(sam_entry, is_pto)
 
         only_w = sorted(wings_codes - sam_codes) if sam_codes else []
         only_s = sorted(sam_codes - wings_codes)
