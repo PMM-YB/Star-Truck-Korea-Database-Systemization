@@ -2114,9 +2114,29 @@ def parse_sam_docx(uploaded_files) -> dict:
     return mapping
 
 
-def compare(df_wings: pd.DataFrame, sam_map: dict) -> pd.DataFrame:
+def compare(df_wings: pd.DataFrame, sam_maps_by_month: dict) -> pd.DataFrame:
+    sorted_yyyymm = sorted(sam_maps_by_month.keys())
+
+    def _get_sam_map_for_prod_date(prod_date_raw) -> dict:
+        """Return the most recent SAM map whose month <= production month.
+        Falls back to the latest available map if no match or unparseable."""
+        if prod_date_raw:
+            try:
+                prod_dt = pd.to_datetime(str(prod_date_raw), errors='coerce')
+                if not pd.isna(prod_dt):
+                    prod_yyyymm = prod_dt.year * 100 + prod_dt.month
+                    for yyyymm in reversed(sorted_yyyymm):
+                        if yyyymm <= prod_yyyymm:
+                            return sam_maps_by_month[yyyymm]
+            except Exception:
+                pass
+        return sam_maps_by_month[sorted_yyyymm[-1]] if sorted_yyyymm else {}
+
     rows = []
     for _, r in df_wings.iterrows():
+        prod_date_raw = r.get('Requested delivery date', '') if 'Requested delivery date' in r.index else ''
+        sam_map = _get_sam_map_for_prod_date(prod_date_raw)
+
         com = r['Commission no.']
         # Handle both 'Model' (new format) and 'Baumuster' (legacy format)
         model_raw = r.get('Model') or r.get('Baumuster', '')
@@ -2338,20 +2358,18 @@ def main():
 
     st.markdown('WINGS CSV/Excel 파일만 업로드하면 SAM 데이터와 자동으로 비교됩니다.')
 
-    # ── Auto-load SAM files from sam_files/<YYYY_MM>/ folder ─────────────────
+    # ── Auto-load SAM files from sam_files/<YYYY_MM>/ folders ────────────────
     sam_base = Path('sam_files')
     sam_base.mkdir(exist_ok=True)
 
-    # Find the latest YYYY_MM subfolder (e.g., 2026_02, 2026_03)
     import re as _re
+    # Find all YYYY_MM subfolders, sorted oldest → newest
     month_folders = sorted(
         [p for p in sam_base.iterdir() if p.is_dir() and _re.fullmatch(r'\d{4}_\d{2}', p.name)],
         key=lambda p: p.name
     )
-    if month_folders:
-        sam_folder = month_folders[-1]  # use the latest month folder
-    else:
-        sam_folder = sam_base  # fallback: files directly in sam_files/
+    if not month_folders:
+        month_folders = [sam_base]  # fallback: files directly in sam_files/
 
     @st.cache_data(show_spinner=False)
     def _cached_sam_map(folder_str: str, mtime_key: str) -> dict:
@@ -2359,20 +2377,31 @@ def main():
         return load_sam_from_folder(Path(folder_str))
 
     valid_exts = {'.docx', '.csv', '.txt'}
-    sam_file_paths = sorted(
-        p for p in sam_folder.glob('*')
-        if p.suffix.lower() in valid_exts and not p.name.startswith('.')
-    )
-    mtime_key = 'v4,' + ','.join(f'{p.name}:{p.stat().st_mtime}' for p in sam_file_paths)
-    sam_map = _cached_sam_map(str(sam_folder), mtime_key)
+    # Load each month folder → sam_maps_by_month = {yyyymm_int: sam_map}
+    sam_maps_by_month = {}
+    all_sam_file_paths = []
+    for folder in month_folders:
+        m_match = _re.fullmatch(r'(\d{4})_(\d{2})', folder.name)
+        yyyymm = int(m_match.group(1)) * 100 + int(m_match.group(2)) if m_match else 0
+        file_paths = sorted(
+            p for p in folder.glob('*')
+            if p.suffix.lower() in valid_exts and not p.name.startswith('.')
+        )
+        all_sam_file_paths.extend(file_paths)
+        mtime_key = f'v4,{folder.name},' + ','.join(f'{p.name}:{p.stat().st_mtime}' for p in file_paths)
+        sam_maps_by_month[yyyymm] = _cached_sam_map(str(folder), mtime_key)
 
-    if sam_map:
-        with st.expander(f'SAM 데이터 로드됨: {len(sam_map)}개 모델 ({len(sam_file_paths)}개 파일) [{sam_folder.name}]', expanded=False):
-            for model, codes in sorted(sam_map.items()):
-                st.write(f'• **{model}** — {len(codes)} 코드')
+    if any(sam_maps_by_month.values()):
+        labels = [f.name for f in month_folders]
+        with st.expander(f'SAM 데이터 로드됨: {", ".join(labels)} ({len(all_sam_file_paths)}개 파일)', expanded=False):
+            for yyyymm, s_map in sorted(sam_maps_by_month.items()):
+                folder_label = f'{yyyymm // 100}_{yyyymm % 100:02d}' if yyyymm else 'fallback'
+                st.markdown(f'**[{folder_label}]**')
+                for model, codes in sorted(s_map.items()):
+                    st.write(f'• **{model}** — {len(codes)} 코드')
     else:
         st.warning(
-            f'`sam_files/{sam_folder.name}/` 폴더에 SAM .docx 파일이 없습니다. '
+            '`sam_files/YYYY_MM/` 폴더에 SAM .docx 파일이 없습니다. '
             'GitHub 레포의 `sam_files/YYYY_MM/` 폴더에 파일을 추가하세요.'
         )
 
@@ -2382,7 +2411,7 @@ def main():
         df_w = parse_wings(wings_file)
         st.success(f'WINGS 파일 읽음: {len(df_w)} 행')
 
-        comp = compare(df_w, sam_map)
+        comp = compare(df_w, sam_maps_by_month)
 
         st.subheader('요약')
         st.metric('Commission 수', len(comp))
