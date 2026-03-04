@@ -531,37 +531,17 @@ async def _click_first_popup_item_playwright(page) -> str:
 async def _click_popup_item_by_text_playwright(page, target_text: str) -> str:
     """팝업에서 target_text와 일치하는 항목을 선택한다.
 
-    방법 1) Playwright locator 클릭 (다양한 셀렉터)
-    방법 2) JS getBoundingClientRect → page.mouse.click (Dojo 이벤트 호환)
+    방법 1) JS getBoundingClientRect → page.mouse.click (단일 JS 호출, 빠름)
+    방법 2) Playwright locator 텍스트 필터 클릭 (fallback)
     방법 3) 첫 번째 항목 fallback
     """
     target_lower = target_text.lower().strip()
 
-    # ── 방법 1: Playwright locator 클릭 ─────────────────────────────────────
-    for exact in (True, False):
-        for sel in ('[item]', '[role="option"]', '.dijitComboBoxItem',
-                    '.dijitMenuItem', '.dijitSelectItem'):
-            try:
-                items = page.locator(sel)
-                cnt = await items.count()
-                for i in range(min(cnt, 30)):
-                    item = items.nth(i)
-                    txt = (await item.inner_text()).strip().lower()
-                    matched = (txt == target_lower) if exact else (target_lower in txt)
-                    if matched:
-                        await item.click(timeout=3000)
-                        mode = "exact" if exact else "partial"
-                        return f"{mode}:{sel}[{i}] '{txt}'"
-            except Exception:
-                continue
-
-    # ── 방법 2: JS로 팝업 아이템 위치 탐색 → page.mouse.click ──────────────
-    # Playwright locator가 못 찾는 경우, JS로 위치를 구해 실제 마우스 클릭
+    # ── 방법 1: JS 단일 호출로 위치 탐색 → page.mouse.click ─────────────────
+    # 루프 없이 JS 한 번으로 처리 → 빠름
     bbox = await page.evaluate(
         """text => {
             const lower = text.toLowerCase().trim();
-
-            // 보이는 팝업 컨테이너 수집
             const popupSels = [
                 '.dijitComboBoxPopup', '.dijitPopup', '.dijitSelectMenu',
                 '[role="listbox"]', '[role="list"]'
@@ -572,36 +552,28 @@ async def _click_popup_item_by_text_playwright(page, target_text: str) -> str:
                     return cs.display !== 'none' && cs.visibility !== 'hidden'
                         && el.offsetParent !== null;
                 });
-
-            // 팝업이 없으면 document.body 전체를 탐색
             const containers = popups.length > 0 ? popups : [document.body];
-
             const itemSels = [
                 '[item]', '[role="option"]', '.dijitComboBoxItem',
                 '.dijitMenuItem', '.dijitSelectItem'
             ];
-
             for (const exact of [true, false]) {
                 for (const container of containers) {
-                    // 먼저 전용 아이템 셀렉터
                     for (const isel of itemSels) {
                         for (const el of container.querySelectorAll(isel)) {
                             if (el.offsetParent === null) continue;
                             const t = el.textContent.trim().toLowerCase();
-                            const matched = exact ? t === lower : t.includes(lower);
-                            if (matched) {
+                            if (exact ? t === lower : t.includes(lower)) {
                                 const r = el.getBoundingClientRect();
                                 return {x: r.x + r.width/2, y: r.y + r.height/2,
-                                        partial: !exact, tag: el.tagName, cls: el.className};
+                                        partial: !exact, tag: el.tagName};
                             }
                         }
                     }
-                    // 그 다음 leaf 텍스트 노드 (div/li/span 중 자식 없는 것)
                     for (const el of container.querySelectorAll('div, li, span')) {
                         if (el.offsetParent === null || el.children.length > 0) continue;
                         const t = el.textContent.trim().toLowerCase();
-                        const matched = exact ? t === lower : t.includes(lower);
-                        if (matched) {
+                        if (exact ? t === lower : t.includes(lower)) {
                             const r = el.getBoundingClientRect();
                             return {x: r.x + r.width/2, y: r.y + r.height/2,
                                     partial: !exact, tag: el.tagName, leaf: true};
@@ -618,6 +590,17 @@ async def _click_popup_item_by_text_playwright(page, target_text: str) -> str:
         await page.mouse.click(bbox["x"], bbox["y"])
         match_type = "partial" if bbox.get("partial") else "exact"
         return f"js+mouse:{match_type}:{target_text}({bbox.get('tag','')})"
+
+    # ── 방법 2: Playwright 텍스트 필터 locator ──────────────────────────────
+    for sel in ('[item]', '[role="option"]', '.dijitComboBoxItem',
+                '.dijitMenuItem', '.dijitSelectItem'):
+        try:
+            loc = page.locator(sel).filter(has_text=target_text)
+            if await loc.count() > 0:
+                await loc.first().click(timeout=3000)
+                return f"pw_filter:{sel} '{target_text}'"
+        except Exception:
+            continue
 
     # ── 방법 3: 첫 번째 항목 fallback ───────────────────────────────────────
     result = await _click_first_popup_item_playwright(page)
