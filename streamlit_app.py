@@ -2309,19 +2309,18 @@ def main():
     # ── Global text visibility overrides ─────────────────────────────────────
     st.markdown("""
     <style>
-    /* Caption text */
-    [data-testid="stCaptionContainer"] p {
-        color: #000000 !important;
-        font-weight: 600 !important;
-        opacity: 1 !important;
-    }
-    /* Dataframe column headers */
-    [data-testid="stDataFrame"] .dvn-scroller .col_heading,
+    /* Dataframe column headers — target Glide Data Grid accessibility overlay */
+    [data-testid="stDataFrame"] div[role="columnheader"],
+    [data-testid="stDataFrame"] div[role="columnheader"] *,
+    [data-testid="stDataFrame"] div[role="row"]:first-child > div,
     [data-testid="stDataFrame"] th,
-    [data-testid="stDataFrame"] [role="columnheader"] {
+    [data-testid="stDataFrame"] .col_heading,
+    [data-testid="stDataFrame"] [class*="headerCell"],
+    [data-testid="stDataFrame"] [class*="ColumnHeader"],
+    [data-testid="stDataFrame"] [class*="column-header"] {
         color: #000000 !important;
         opacity: 1 !important;
-        font-weight: 700 !important;
+        font-weight: 800 !important;
     }
     </style>
     """, unsafe_allow_html=True)
@@ -2508,7 +2507,7 @@ def main():
         if not very_urgent.empty:
             available = [c for c in cols_table if c in very_urgent.columns]
             very_urgent_display = very_urgent[available].reset_index(drop=True)
-            st.caption("행을 클릭하면 해당 Commission의 옵션 코드 상세 설명이 표시됩니다.")
+            st.markdown('<p style="color:#000000;font-weight:600;font-size:14px;margin:0 0 6px 0">행을 클릭하면 해당 Commission의 옵션 코드 상세 설명이 표시됩니다.</p>', unsafe_allow_html=True)
             vu_event = st.dataframe(
                 very_urgent_display.style.apply(_style_deadline, axis=None),
                 on_select="rerun",
@@ -2540,7 +2539,7 @@ def main():
         if not urgent.empty:
             available = [c for c in cols_table if c in urgent.columns]
             urgent_display = urgent[available].reset_index(drop=True)
-            st.caption("행을 클릭하면 해당 Commission의 옵션 코드 상세 설명이 표시됩니다.")
+            st.markdown('<p style="color:#000000;font-weight:600;font-size:14px;margin:0 0 6px 0">행을 클릭하면 해당 Commission의 옵션 코드 상세 설명이 표시됩니다.</p>', unsafe_allow_html=True)
             u_event = st.dataframe(
                 urgent_display.style.apply(_style_deadline, axis=None),
                 on_select="rerun",
