@@ -2533,7 +2533,11 @@ def main():
                 _status_ph.success(f"다운로드 완료: {st.session_state['_wings_auto_name']}")
                 st.rerun()
             except Exception as _e:
-                _status_ph.error(f'다운로드 실패: {_e}')
+                import traceback as _tb
+                _status_ph.error(
+                    f'다운로드 실패: {type(_e).__name__}: {_e}\n\n'
+                    f'```\n{_tb.format_exc()}\n```'
+                )
 
         st.divider()
         st.markdown('**또는 WINGS 파일 직접 업로드:**')
