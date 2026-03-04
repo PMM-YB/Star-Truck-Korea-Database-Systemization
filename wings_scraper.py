@@ -136,8 +136,48 @@ async def _wings_download_async(months: list, download_dir: str, on_status=None)
         else:
             # 복수 월: >= start AND <= end
             await _set_filter_row(page, 0, "Requested delivery date", "greater equal", start_date)
-            await page.click("text=New criteria")
-            await page.wait_for_timeout(800)
+
+            # ── row 0의 복사(📋) 버튼 클릭 → row 1 생성 ──────────────────────
+            copy_bbox = await page.evaluate(
+                """idx => {
+                    const rows = dijit.registry.toArray().filter(w =>
+                        w.declaredClass === 'com.daimler.wings.view.grid.filter.FilterCriteriaWidget'
+                    );
+                    if (!rows[idx]) return null;
+                    const buttons = dijit.registry.findWidgets(rows[idx].domNode)
+                        .filter(w => w.declaredClass.includes('Button'));
+                    // title/icon/label로 복사 버튼 탐색
+                    let btn = null;
+                    for (const b of buttons) {
+                        const html  = (b.domNode.innerHTML || '').toLowerCase();
+                        const cls   = (b.domNode.className || '').toLowerCase();
+                        const title = (b.domNode.title || b.label || b.title || '').toLowerCase();
+                        if (html.includes('copy') || cls.includes('copy') ||
+                            html.includes('clone') || html.includes('duplicate') ||
+                            title.includes('copy') || title.includes('clone') ||
+                            title.includes('duplicate')) {
+                            btn = b; break;
+                        }
+                    }
+                    // fallback: 4개 버튼 중 3번째 (up, down, copy, delete 순서)
+                    if (!btn && buttons.length >= 3) btn = buttons[2];
+                    if (!btn) return null;
+                    const r = btn.domNode.getBoundingClientRect();
+                    return {x: r.x + r.width / 2, y: r.y + r.height / 2,
+                            scrollX: window.scrollX, scrollY: window.scrollY};
+                }""",
+                0,
+            )
+            if copy_bbox:
+                await page.mouse.click(
+                    copy_bbox["x"] + copy_bbox["scrollX"],
+                    copy_bbox["y"] + copy_bbox["scrollY"],
+                )
+            else:
+                # fallback: "New criteria" 텍스트 버튼
+                await page.click("text=New criteria")
+
+            await page.wait_for_timeout(1000)
             await _set_filter_row(page, 1, "Requested delivery date", "less equal", end_date)
 
         # ── 5. Execute 클릭 → 결과 페이지 대기 ───────────────────────────────
