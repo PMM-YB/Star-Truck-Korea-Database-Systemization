@@ -2334,6 +2334,29 @@ def main():
         opacity: 1 !important;
         font-weight: 800 !important;
     }
+
+    /* WINGS 가져오기 버튼: primary → 어두운 파란색 */
+    [data-testid="stButton"][id*="wings_fetch_btn"] > button,
+    button[kind="primary"],
+    [data-testid="stBaseButton-primary"] {
+        background-color: #1a3a5c !important;
+        border-color: #1a3a5c !important;
+        color: #ffffff !important;
+    }
+    [data-testid="stButton"][id*="wings_fetch_btn"] > button:hover,
+    button[kind="primary"]:hover,
+    [data-testid="stBaseButton-primary"]:hover {
+        background-color: #24527a !important;
+        border-color: #24527a !important;
+    }
+
+    /* multiselect 선택 태그: 어두운 파란색 */
+    [data-testid="stMultiSelect"] span[data-baseweb="tag"] {
+        background-color: #1a3a5c !important;
+    }
+    [data-testid="stMultiSelect"] span[data-baseweb="tag"] span {
+        color: #ffffff !important;
+    }
     </style>
     """, unsafe_allow_html=True)
 
