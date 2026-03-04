@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 import io
+import os
 import re
 from datetime import date
 import base64
@@ -9,6 +10,13 @@ import zipfile
 import xml.etree.ElementTree as ET
 from collections import defaultdict
 from docx import Document
+
+# WINGS 자동화 (로컬 실행 시에만 활성화; 클라우드 배포에서는 ImportError로 비활성화)
+try:
+    from wings_scraper import download_wings_excel as _wings_fetch
+    _WINGS_AUTO = True
+except ImportError:
+    _WINGS_AUTO = False
 
 
 # ---------------------------------------------------------------------------
@@ -2475,7 +2483,67 @@ def main():
         for i, (code, desc) in enumerate(except_codes):
             cols[i % 2].markdown(f'`{code}` {desc}')
 
+    # ── Search by Production Date (로컬 실행 시 WINGS 자동화) ─────────────────
+    if _WINGS_AUTO:
+        st.subheader('Search by Production Date')
+        st.caption('생산월을 선택하면 WINGS에서 자동으로 파일을 받아 비교합니다. (로컬 전용)')
+
+        # 2024-01 ~ 내년 12월까지 월 옵션 생성
+        _today = date.today()
+        _month_opts = []
+        for _y in range(2024, _today.year + 2):
+            for _m in range(1, 13):
+                _month_opts.append(f'{_y}-{_m:02d}')
+        _month_opts = [m for m in _month_opts if m <= f'{_today.year + 1}-12']
+
+        _sel_months = st.multiselect(
+            '생산월 선택 (복수 선택 가능)',
+            options=_month_opts,
+            default=[f'{_today.year}-{_today.month:02d}'],
+            key='wings_months',
+        )
+
+        _col1, _col2 = st.columns([2, 1])
+        with _col1:
+            _fetch_btn = st.button(
+                'WINGS에서 자동으로 가져오기',
+                key='wings_fetch_btn',
+                type='primary',
+                disabled=not _sel_months,
+            )
+        with _col2:
+            if st.session_state.get('_wings_auto_name'):
+                st.caption(f"현재 로드됨: {st.session_state['_wings_auto_name']}")
+                if st.button('초기화', key='wings_clear'):
+                    st.session_state.pop('_wings_auto_bytes', None)
+                    st.session_state.pop('_wings_auto_name', None)
+                    st.rerun()
+
+        if _fetch_btn and _sel_months:
+            _status_ph = st.empty()
+            _status_ph.info('WINGS 자동 다운로드 시작 중...')
+            try:
+                _dl_path = _wings_fetch(
+                    months=_sel_months,
+                    on_status=lambda msg: _status_ph.info(msg),
+                )
+                with open(_dl_path, 'rb') as _f:
+                    st.session_state['_wings_auto_bytes'] = _f.read()
+                st.session_state['_wings_auto_name'] = os.path.basename(_dl_path)
+                _status_ph.success(f"다운로드 완료: {st.session_state['_wings_auto_name']}")
+                st.rerun()
+            except Exception as _e:
+                _status_ph.error(f'다운로드 실패: {_e}')
+
+        st.divider()
+        st.markdown('**또는 WINGS 파일 직접 업로드:**')
+
     wings_file = st.file_uploader('WINGS CSV/Excel 파일', type=['csv', 'xlsx', 'xls'])
+
+    # 자동 다운로드된 파일이 있고 업로드된 파일이 없으면 자동 파일 사용
+    if wings_file is None and st.session_state.get('_wings_auto_bytes'):
+        wings_file = io.BytesIO(st.session_state['_wings_auto_bytes'])
+        st.info(f"자동 다운로드 파일 사용 중: {st.session_state.get('_wings_auto_name', 'wings.xlsx')}")
 
     if wings_file is not None:
         df_w = parse_wings(wings_file)
