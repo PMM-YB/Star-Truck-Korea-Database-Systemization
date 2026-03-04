@@ -68,12 +68,64 @@ def _find_chrome_exe() -> str | None:
     return None
 
 
+def _are_consecutive(months_sorted: list) -> bool:
+    """정렬된 'YYYY-MM' 리스트가 월 단위로 연속인지 확인한다."""
+    for i in range(len(months_sorted) - 1):
+        y1, m1 = map(int, months_sorted[i].split('-'))
+        y2, m2 = map(int, months_sorted[i + 1].split('-'))
+        next_m, next_y = (m1 + 1, y1) if m1 < 12 else (1, y1 + 1)
+        if not (y2 == next_y and m2 == next_m):
+            return False
+    return True
+
+
+async def _copy_filter_row(page, row_idx: int):
+    """FilterCriteriaWidget row_idx의 복사(📋) 버튼을 클릭해 새 행을 추가한다."""
+    copy_bbox = await page.evaluate(
+        """idx => {
+            const rows = dijit.registry.toArray().filter(w =>
+                w.declaredClass === 'com.daimler.wings.view.grid.filter.FilterCriteriaWidget'
+            );
+            if (!rows[idx]) return null;
+            const buttons = dijit.registry.findWidgets(rows[idx].domNode)
+                .filter(w => w.declaredClass.includes('Button'));
+            let btn = null;
+            for (const b of buttons) {
+                const html  = (b.domNode.innerHTML || '').toLowerCase();
+                const cls   = (b.domNode.className || '').toLowerCase();
+                const title = (b.domNode.title || b.label || b.title || '').toLowerCase();
+                if (html.includes('copy') || cls.includes('copy') ||
+                    html.includes('clone') || html.includes('duplicate') ||
+                    title.includes('copy') || title.includes('clone') ||
+                    title.includes('duplicate')) {
+                    btn = b; break;
+                }
+            }
+            if (!btn && buttons.length >= 3) btn = buttons[2];
+            if (!btn) return null;
+            const r = btn.domNode.getBoundingClientRect();
+            return {x: r.x + r.width / 2, y: r.y + r.height / 2,
+                    scrollX: window.scrollX, scrollY: window.scrollY};
+        }""",
+        row_idx,
+    )
+    if copy_bbox:
+        await page.mouse.click(
+            copy_bbox["x"] + copy_bbox["scrollX"],
+            copy_bbox["y"] + copy_bbox["scrollY"],
+        )
+    else:
+        await page.click("text=New criteria")
+    await page.wait_for_timeout(1000)
+
+
 async def _wings_download_async(months: list, download_dir: str, on_status=None) -> str:
 
     months_sorted = sorted(months)
     start_date = months_sorted[0] + "-01"
     end_date = months_sorted[-1] + "-01"
     single = len(months_sorted) == 1
+    consecutive = _are_consecutive(months_sorted)
 
     os.makedirs(WINGS_PROFILE_DIR, exist_ok=True)
     os.makedirs(download_dir, exist_ok=True)
@@ -131,54 +183,22 @@ async def _wings_download_async(months: list, download_dir: str, on_status=None)
         # ── 4. 필터 조건 설정 ─────────────────────────────────────────────────
         status("필터 조건 설정 중...")
         if single:
-            # 단일 월: Requested delivery date = equal = YYYY-MM-01
+            # 단일 월: equal = YYYY-MM-01
             await _set_filter_row(page, 0, "Requested delivery date", "equal", start_date)
-        else:
-            # 복수 월: >= start AND <= end
+
+        elif consecutive:
+            # 연속 월 (예: 04,05,06): greater equal start AND less equal end
             await _set_filter_row(page, 0, "Requested delivery date", "greater equal", start_date)
-
-            # ── row 0의 복사(📋) 버튼 클릭 → row 1 생성 ──────────────────────
-            copy_bbox = await page.evaluate(
-                """idx => {
-                    const rows = dijit.registry.toArray().filter(w =>
-                        w.declaredClass === 'com.daimler.wings.view.grid.filter.FilterCriteriaWidget'
-                    );
-                    if (!rows[idx]) return null;
-                    const buttons = dijit.registry.findWidgets(rows[idx].domNode)
-                        .filter(w => w.declaredClass.includes('Button'));
-                    // title/icon/label로 복사 버튼 탐색
-                    let btn = null;
-                    for (const b of buttons) {
-                        const html  = (b.domNode.innerHTML || '').toLowerCase();
-                        const cls   = (b.domNode.className || '').toLowerCase();
-                        const title = (b.domNode.title || b.label || b.title || '').toLowerCase();
-                        if (html.includes('copy') || cls.includes('copy') ||
-                            html.includes('clone') || html.includes('duplicate') ||
-                            title.includes('copy') || title.includes('clone') ||
-                            title.includes('duplicate')) {
-                            btn = b; break;
-                        }
-                    }
-                    // fallback: 4개 버튼 중 3번째 (up, down, copy, delete 순서)
-                    if (!btn && buttons.length >= 3) btn = buttons[2];
-                    if (!btn) return null;
-                    const r = btn.domNode.getBoundingClientRect();
-                    return {x: r.x + r.width / 2, y: r.y + r.height / 2,
-                            scrollX: window.scrollX, scrollY: window.scrollY};
-                }""",
-                0,
-            )
-            if copy_bbox:
-                await page.mouse.click(
-                    copy_bbox["x"] + copy_bbox["scrollX"],
-                    copy_bbox["y"] + copy_bbox["scrollY"],
-                )
-            else:
-                # fallback: "New criteria" 텍스트 버튼
-                await page.click("text=New criteria")
-
-            await page.wait_for_timeout(1000)
+            await _copy_filter_row(page, 0)
             await _set_filter_row(page, 1, "Requested delivery date", "less equal", end_date)
+
+        else:
+            # 비연속 월 (예: 04,06): 각 월마다 equal 행 추가
+            for i, month in enumerate(months_sorted):
+                date_str = month + "-01"
+                if i > 0:
+                    await _copy_filter_row(page, i - 1)
+                await _set_filter_row(page, i, "Requested delivery date", "equal", date_str)
 
         # ── 5. Execute 클릭 → 결과 페이지 대기 ───────────────────────────────
         status("검색 실행 중...")
