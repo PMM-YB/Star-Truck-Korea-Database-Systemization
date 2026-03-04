@@ -1947,7 +1947,18 @@ def parse_wings(file) -> pd.DataFrame:
         code_cols_to_use.append(wings_opt_col2)
     
     if code_cols_to_use:
-        df['WINGS_codes'] = df[code_cols_to_use].astype(str).agg(' '.join, axis=1).apply(extract_codes)
+        # Extract each column individually to avoid issues with duplicate column names
+        # (duplicate names in Excel make df[col] return a DataFrame, not a Series)
+        text_parts = []
+        for col in dict.fromkeys(code_cols_to_use):  # deduplicate while preserving order
+            col_data = df[col]
+            if isinstance(col_data, pd.DataFrame):
+                col_data = col_data.iloc[:, 0]  # take first if duplicate columns exist
+            text_parts.append(col_data.astype(str))
+        combined = text_parts[0]
+        for part in text_parts[1:]:
+            combined = combined + ' ' + part
+        df['WINGS_codes'] = combined.apply(extract_codes)
     else:
         # Final fallback
         df['WINGS_codes'] = df.astype(str).agg(' '.join, axis=1).apply(extract_codes)
