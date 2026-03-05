@@ -2617,50 +2617,55 @@ def main():
     #  SIDEBAR
     # ══════════════════════════════════════════════════════════════════════════
     with st.sidebar:
-        st.markdown('### SAM Data')
-        if any(sam_maps_by_month.values()):
-            _loaded_labels = [f.name for f in month_folders if any(
-                p.suffix.lower() in valid_exts and not p.name.startswith('.') for p in f.glob('*')
-            )]
-            st.success(f'{", ".join(_loaded_labels)} — {len(all_sam_file_paths)} files loaded')
-
-        # Show each month folder (2026_02 ~ 2026_12)
+        # SAM Data — collapsed by default to save sidebar space
         _all_month_dirs = sorted(
             [p for p in sam_base.iterdir() if p.is_dir() and _re.fullmatch(r'\d{4}_\d{2}', p.name)],
             key=lambda p: p.name,
         )
-        for _mdir in _all_month_dirs:
-            _mfiles = sorted(
-                p for p in _mdir.glob('*')
-                if p.suffix.lower() in valid_exts and not p.name.startswith('.')
-            )
-            with st.expander(f'{_mdir.name}  ({len(_mfiles)} files)', expanded=False):
-                # Upload button
-                _uploaded = st.file_uploader(
-                    f'Add .docx to {_mdir.name}',
-                    type=['docx'],
-                    key=f'_sam_upload_{_mdir.name}',
-                    accept_multiple_files=True,
-                    label_visibility='collapsed',
+        _total_sam_count = sum(
+            1 for _d in _all_month_dirs
+            for _f in _d.glob('*')
+            if _f.suffix.lower() in valid_exts and not _f.name.startswith('.')
+        )
+        with st.expander(f'### SAM Data  ({_total_sam_count} files)', expanded=False):
+            if any(sam_maps_by_month.values()):
+                _loaded_labels = [f.name for f in month_folders if any(
+                    p.suffix.lower() in valid_exts and not p.name.startswith('.') for p in f.glob('*')
+                )]
+                st.success(f'{", ".join(_loaded_labels)} — {len(all_sam_file_paths)} files loaded')
+
+            for _mdir in _all_month_dirs:
+                _mfiles = sorted(
+                    p for p in _mdir.glob('*')
+                    if p.suffix.lower() in valid_exts and not p.name.startswith('.')
                 )
-                if _uploaded:
-                    for _uf in _uploaded:
-                        _save_path = _mdir / _uf.name
-                        _save_path.write_bytes(_uf.read())
-                    st.rerun()
-
-                # List files with delete buttons
-                for _fp in _mfiles:
-                    _fc1, _fc2 = st.columns([5, 1])
-                    _fc1.caption(_fp.name)
-                    if _fc2.button('✕', key=f'_sam_del_{_mdir.name}_{_fp.name}'):
-                        _fp.unlink()
+                with st.expander(f'{_mdir.name}  ({len(_mfiles)} files)', expanded=False):
+                    # Upload button
+                    _uploaded = st.file_uploader(
+                        f'Add .docx to {_mdir.name}',
+                        type=['docx'],
+                        key=f'_sam_upload_{_mdir.name}',
+                        accept_multiple_files=True,
+                        label_visibility='collapsed',
+                    )
+                    if _uploaded:
+                        for _uf in _uploaded:
+                            _save_path = _mdir / _uf.name
+                            _save_path.write_bytes(_uf.read())
                         st.rerun()
-                if not _mfiles:
-                    st.caption('No files')
 
-        if not any(sam_maps_by_month.values()):
-            st.warning('No SAM .docx files found.')
+                    # List files with delete buttons
+                    for _fp in _mfiles:
+                        _fc1, _fc2 = st.columns([5, 1])
+                        _fc1.caption(_fp.name)
+                        if _fc2.button('✕', key=f'_sam_del_{_mdir.name}_{_fp.name}'):
+                            _fp.unlink()
+                            st.rerun()
+                    if not _mfiles:
+                        st.caption('No files')
+
+            if not any(sam_maps_by_month.values()):
+                st.warning('No SAM .docx files found.')
 
         st.markdown('---')
         st.markdown(f'### Exception Codes ({len(except_codes)})')
