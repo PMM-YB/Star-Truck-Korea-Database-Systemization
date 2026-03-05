@@ -2804,10 +2804,10 @@ def main():
 
         # ── KPI metric cards ─────────────────────────────────────────────────
         _total = len(comp)
+        # Mismatch = no SAM file found for the model (not just code differences)
         _mismatch = len(comp[
-            (comp.get('Only_in_SAM', pd.Series(dtype=str)).fillna('').str.strip() != '') |
-            (comp.get('Only_in_WINGS', pd.Series(dtype=str)).fillna('').str.strip() != '')
-        ]) if 'Only_in_SAM' in comp.columns else 0
+            comp.get('Compared SAM file name', pd.Series(dtype=str)).fillna('').str.strip() == ''
+        ]) if 'Compared SAM file name' in comp.columns else 0
         _match = _total - _mismatch
         _vu_count = len(very_urgent)
 
