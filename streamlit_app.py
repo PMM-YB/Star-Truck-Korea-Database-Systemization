@@ -2723,6 +2723,57 @@ def main():
                     f'```\n{_tb.format_exc()}\n```'
                 )
 
+    # ── Search by Production Date (main area) ───────────────────────────────
+    st.subheader('Search by Production Date')
+    _main_sel = st.multiselect(
+        'Select Production Month(s)',
+        options=_month_opts,
+        default=st.session_state.get('wings_months', [f'{_today.year}-{_today.month:02d}']),
+        key='wings_months_main',
+    )
+    _main_col1, _main_col2 = st.columns([2, 1])
+    with _main_col1:
+        _main_fetch = st.button(
+            'Auto-fetch from WINGS',
+            key='wings_fetch_btn_main',
+            type='primary',
+            disabled=not _main_sel,
+        )
+    with _main_col2:
+        if st.session_state.get('_wings_auto_name'):
+            st.caption(f"Loaded: {st.session_state['_wings_auto_name']}")
+            if st.button('Clear', key='wings_clear_main'):
+                st.session_state.pop('_wings_auto_bytes', None)
+                st.session_state.pop('_wings_auto_name', None)
+                st.rerun()
+
+    if _main_fetch and _main_sel:
+        if not _WINGS_AUTO:
+            st.warning('Auto-fetch requires the local environment with WINGS access. Please upload a file manually below.')
+        else:
+            _prog2 = st.progress(0, text='Connecting to WINGS...')
+            _status2 = st.empty()
+            _step2 = [0]
+            def _on_status2(msg):
+                _step2[0] += 1
+                _prog2.progress(min(_step2[0] * 15, 90), text=msg)
+                _status2.info(msg)
+            try:
+                _dl2 = _wings_fetch(months=_main_sel, on_status=_on_status2)
+                _prog2.progress(100, text='Download complete!')
+                with open(_dl2, 'rb') as _f2:
+                    st.session_state['_wings_auto_bytes'] = _f2.read()
+                st.session_state['_wings_auto_name'] = os.path.basename(_dl2)
+                _status2.success(f"Download complete: {st.session_state['_wings_auto_name']}")
+                st.rerun()
+            except Exception as _e2:
+                import traceback as _tb2
+                _prog2.empty()
+                _status2.error(f'Download failed: {type(_e2).__name__}: {_e2}\n\n```\n{_tb2.format_exc()}\n```')
+
+    st.divider()
+    st.markdown('**Or upload a file directly:**')
+
     # ── File uploader (main area) ─────────────────────────────────────────────
     wings_file = st.file_uploader('Upload AFAB CSV/Excel File', type=['csv', 'xlsx', 'xls'])
 
