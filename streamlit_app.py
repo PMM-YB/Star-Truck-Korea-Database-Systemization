@@ -1862,6 +1862,30 @@ def show_code_details(commission_no: str, sam_str: str, wings_str: str, except_s
             else:
                 ecol2.markdown(f"**`{code}`** &nbsp; {desc}")
 
+    # ── Export (Excel) button ──────────────────────────────────────────────────
+    st.divider()
+    rows = []
+    for code in sam_codes:
+        rows.append({"Section": "Only in SAM", "Code": code, "Description": _lookup_code(code)})
+    for code in wings_codes:
+        rows.append({"Section": "Only in WINGS", "Code": code, "Description": _lookup_code(code)})
+    for code in except_codes:
+        rows.append({"Section": "Production Codes (ref)", "Code": code, "Description": _lookup_code(code)})
+    df_export = pd.DataFrame(rows)
+    buf = io.BytesIO()
+    with pd.ExcelWriter(buf, engine="openpyxl") as writer:
+        df_export.to_excel(writer, index=False, sheet_name=f"{commission_no}")
+    buf.seek(0)
+    _, btn_col = st.columns([4, 1])
+    with btn_col:
+        st.download_button(
+            label="Export (Excel)",
+            data=buf,
+            file_name=f"{commission_no}_detail.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            key=f"export_{commission_no}",
+        )
+
 
 
 def parse_wings(file) -> pd.DataFrame:
