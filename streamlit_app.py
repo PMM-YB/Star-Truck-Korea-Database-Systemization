@@ -2535,24 +2535,26 @@ def main():
         key='wings_months',
     )
 
-    if _WINGS_AUTO:
-        _col1, _col2 = st.columns([2, 1])
-        with _col1:
-            _fetch_btn = st.button(
-                'Auto-fetch from WINGS',
-                key='wings_fetch_btn',
-                type='primary',
-                disabled=not _sel_months,
-            )
-        with _col2:
-            if st.session_state.get('_wings_auto_name'):
-                st.caption(f"Loaded: {st.session_state['_wings_auto_name']}")
-                if st.button('Clear', key='wings_clear'):
-                    st.session_state.pop('_wings_auto_bytes', None)
-                    st.session_state.pop('_wings_auto_name', None)
-                    st.rerun()
+    _col1, _col2 = st.columns([2, 1])
+    with _col1:
+        _fetch_btn = st.button(
+            'Auto-fetch from WINGS',
+            key='wings_fetch_btn',
+            type='primary',
+            disabled=not _sel_months,
+        )
+    with _col2:
+        if st.session_state.get('_wings_auto_name'):
+            st.caption(f"Loaded: {st.session_state['_wings_auto_name']}")
+            if st.button('Clear', key='wings_clear'):
+                st.session_state.pop('_wings_auto_bytes', None)
+                st.session_state.pop('_wings_auto_name', None)
+                st.rerun()
 
-        if _fetch_btn and _sel_months:
+    if _fetch_btn and _sel_months:
+        if not _WINGS_AUTO:
+            st.warning('Auto-fetch requires the local environment with WINGS access. Please upload a WINGS file manually below.')
+        else:
             _status_ph = st.empty()
             _status_ph.info('Starting WINGS auto-download...')
             try:
@@ -2572,10 +2574,8 @@ def main():
                     f'```\n{_tb.format_exc()}\n```'
                 )
 
-        st.divider()
-        st.markdown('**Or upload a WINGS file directly:**')
-    else:
-        st.caption('Auto-fetch is available in the local environment only. Please upload a WINGS file below.')
+    st.divider()
+    st.markdown('**Or upload a WINGS file directly:**')
 
     wings_file = st.file_uploader('WINGS CSV/Excel File', type=['csv', 'xlsx', 'xls'])
 
