@@ -2592,6 +2592,8 @@ def main():
             p for p in folder.glob('*')
             if p.suffix.lower() in valid_exts and not p.name.startswith('.')
         )
+        if not file_paths:
+            continue  # skip empty folders so comparison falls back to nearest month with data
         all_sam_file_paths.extend(file_paths)
         mtime_key = f'v5,{folder.name},' + ','.join(f'{p.name}:{p.stat().st_mtime}' for p in file_paths)
         sam_maps_by_month[yyyymm] = _cached_sam_map(str(folder), mtime_key)
