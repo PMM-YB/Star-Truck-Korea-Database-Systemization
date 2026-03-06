@@ -2835,6 +2835,15 @@ def main():
         wings_file = io.BytesIO(st.session_state['_wings_auto_bytes'])
         st.info(f"Using auto-downloaded file: {st.session_state.get('_wings_auto_name', 'wings.xlsx')}")
 
+    # Fallback: load latest file from wings_data/ (pushed by scheduler)
+    if wings_file is None:
+        _wd = Path('wings_data')
+        if _wd.exists():
+            _wfiles = sorted(_wd.glob('WINGS_*.csv'), key=lambda p: p.stat().st_mtime, reverse=True)
+            if _wfiles:
+                wings_file = open(_wfiles[0], 'rb')
+                st.info(f"Using scheduled data: {_wfiles[0].name}")
+
     if wings_file is not None:
         df_w = parse_wings(wings_file)
         st.success(f'AFAB file loaded: {len(df_w)} rows')
