@@ -2315,11 +2315,37 @@ def compare(df_wings: pd.DataFrame, sam_maps_by_month: dict) -> pd.DataFrame:
         # Place important columns in desired order. Put Model_norm first, then
         # Changeability Date (renamed from 'Vehicle alterable until'), then Until Dealine,
         # and prefer Only_in_SAM before Only_in_WINGS.
+        # Extract Vehicle, Type (axle config), Cab, PTO from SAM filename
+        _vehicle = ''
+        _axle_type = ''
+        _cab_code = ''
+        _pto_flag = ''
+        if sam_file:
+            # Vehicle name: Actros-L, Actros, Arocs, Atego, eActros, Econic, etc.
+            _veh_m = re.search(r'\b(Actros-L|Actros|Arocs|Atego|eActros|Econic|Unimog)\b', sam_file, re.IGNORECASE)
+            if _veh_m:
+                _vehicle = _veh_m.group(1)
+            # Axle config: 4x2, 6x2, 6x4, 8x4, 8x8, etc.
+            _axle_m = re.search(r'\b(\d+x\d+)\b', sam_file, re.IGNORECASE)
+            if _axle_m:
+                _axle_type = _axle_m.group(1)
+            # Cab code: 2-3 char alphanumeric like S5F, G5F, B5F, C3H
+            _cab_m = re.search(r'\b([A-Z]\d[A-Z])\b', sam_file)
+            if _cab_m:
+                _cab_code = _cab_m.group(1)
+            # PTO
+            if re.search(r'\bPTO\b', sam_file, re.IGNORECASE):
+                _pto_flag = 'PTO'
+
         # Start with explicit copies from the WINGS row to avoid accidental blanks
         row_dict = {
             'Commission no.': com,
             'Baumuster': r.get('Baumuster', '') if 'Baumuster' in r.index else baumuster_num,
             'Model': str(r.get('Model', model_raw) if 'Model' in r.index else model_raw).replace('4140', '4440'),
+            'Vehicle': _vehicle,
+            'Type': _axle_type,
+            'Cab': _cab_code,
+            'PTO': _pto_flag,
             'SAM': _normalize_model(r.get('Model') or r.get('Baumuster') or model_raw),
             'Changeability Date': '',
             'Until Dealine': '',
@@ -2389,7 +2415,7 @@ def to_excel_bytes(df: pd.DataFrame) -> bytes:
     towrite = io.BytesIO()
     with pd.ExcelWriter(towrite, engine='openpyxl') as writer:
         # Select key columns for output in desired order
-        output_cols = ['Commission no.', 'Baumuster', 'Model', 'SAM', 'Changeability Date',
+        output_cols = ['Commission no.', 'Baumuster', 'Model', 'Vehicle', 'Type', 'Cab', 'PTO', 'SAM', 'Changeability Date',
                        'Until Dealine', 'Production date', 'Only_in_SAM', 'Only_in_WINGS', 'Exception Codes',
                        'Order status financial', 'Order status logistical', 'Gross equipment price (repricing)',
                        'Additional equipment (enumeration)', 'FIN', 'Subcategory (ID)',
@@ -2817,7 +2843,7 @@ def main():
 
         # ── Prepare data splits ──────────────────────────────────────────────
         cols_table = ['Commission no.', 'Baumuster', 'Until Dealine', 'Changeability Date',
-                      'Production date', 'Model', 'SAM', 'Only_in_SAM', 'Only_in_WINGS', 'Exception Codes', 'Compared SAM file name']
+                      'Production date', 'Model', 'Vehicle', 'Type', 'Cab', 'PTO', 'SAM', 'Only_in_SAM', 'Only_in_WINGS', 'Exception Codes', 'Compared SAM file name']
 
         # Sort by Production date (earlier months first), then by Until Dealine
         if 'Production date' in comp.columns:
