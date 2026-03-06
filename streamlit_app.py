@@ -1887,6 +1887,34 @@ def show_code_details(commission_no: str, sam_str: str, wings_str: str, except_s
         )
 
 
+@st.dialog("Exception Codes List", width="large")
+def show_exception_codes():
+    _exc_set = st.session_state.get('_except_codes_set', set())
+    _exc_custom = st.session_state.get('_except_custom_desc', {})
+    _all = sorted(
+        [(code, _exc_custom.get(code, OPTION_CODE_MAP.get(code, ''))) for code in _exc_set],
+        key=lambda x: x[0],
+    )
+    st.markdown(f"**Total: {len(_all)} codes**")
+    _q = st.text_input('Search codes...', key='_exc_dialog_search', placeholder='Type code or description...')
+    if _q and _q.strip():
+        _qu = _q.strip().upper()
+        _all = [(c, d) for c, d in _all if _qu in c.upper() or _qu in d.upper()]
+        st.caption(f'{len(_all)} results')
+    st.divider()
+    for i in range(0, len(_all), 3):
+        cols = st.columns(3)
+        for j, col in enumerate(cols):
+            if i + j < len(_all):
+                code, desc = _all[i + j]
+                with col:
+                    _cc1, _cc2 = st.columns([5, 1])
+                    _cc1.markdown(f'`{code}` {desc}')
+                    if _cc2.button('✕', key=f'_exc_dlg_del_{code}'):
+                        st.session_state['_except_codes_set'].discard(code)
+                        st.session_state['_except_custom_desc'].pop(code, None)
+                        st.rerun()
+
 
 def parse_wings(file) -> pd.DataFrame:
     # supports uploaded CSV or Excel bytes
@@ -2670,7 +2698,8 @@ def main():
                 st.warning('No SAM .docx files found.')
 
         st.markdown('---')
-        st.markdown(f'### Exception Codes ({len(except_codes)})')
+        if st.button(f'Exception Codes ({len(except_codes)})  — View List', key='_exc_view_btn', use_container_width=True):
+            show_exception_codes()
 
         _new_code = st.text_input('Code', key='_exc_new_code', placeholder='e.g. A1B', label_visibility='collapsed')
         _new_desc = st.text_input('Description', key='_exc_new_desc', placeholder='Description', label_visibility='collapsed')
@@ -2681,23 +2710,6 @@ def main():
                 if _new_desc.strip():
                     st.session_state['_except_custom_desc'][_nc] = _new_desc.strip()
                 st.rerun()
-
-        _exc_search = st.text_input('Search', key='_exc_search', placeholder='Search codes...', label_visibility='collapsed')
-
-        _filtered = except_codes
-        if _exc_search and _exc_search.strip():
-            _q = _exc_search.strip().upper()
-            _filtered = [(c, d) for c, d in except_codes if _q in c.upper() or _q in d.upper()]
-
-        _exc_container = st.container(height=300)
-        with _exc_container:
-            for code, desc in _filtered:
-                _c1, _c2 = st.columns([5, 1])
-                _c1.markdown(f'`{code}` {desc}')
-                if _c2.button('✕', key=f'_exc_del_{code}'):
-                    st.session_state['_except_codes_set'].discard(code)
-                    st.session_state['_except_custom_desc'].pop(code, None)
-                    st.rerun()
 
         # Production Date section removed from sidebar (exists in main area)
 
