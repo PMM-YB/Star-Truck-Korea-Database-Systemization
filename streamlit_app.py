@@ -1859,7 +1859,7 @@ def show_code_details(commission_no: str, sam_str: str, wings_str: str, except_s
     st.markdown(f"**Commission No.:** `{commission_no}`")
     st.divider()
 
-    _mand_set = set(MANDATORY_CODES.keys())
+    _mand_set = st.session_state.get('_mand_codes_set', set(MANDATORY_CODES.keys()))
 
     def _render_code(code: str):
         """Render a code, highlighting mandatory codes in red."""
@@ -1977,36 +1977,55 @@ def show_exception_codes():
 
 
 @st.dialog("Mandatory Codes List", width="large")
-def show_mandatory_codes(mandatory_codes: dict):
-    st.markdown(f"**Total: {len(mandatory_codes)} codes**")
-    st.caption("These codes must always be present. If any appears in Only_in_SAM or Only_in_WINGS, it is flagged in red.")
+def show_mandatory_codes():
+    _mand_set = st.session_state.get('_mand_codes_set', set(MANDATORY_CODES.keys()))
+    _mand_custom = st.session_state.get('_mand_custom_desc', {})
+    _all = sorted(
+        [(code, _mand_custom.get(code, MANDATORY_CODES.get(code, ''))) for code in _mand_set],
+        key=lambda x: x[0],
+    )
+
+    st.markdown(f"**Total: {len(_all)} codes**")
+    st.caption("These codes must always be present. If any appears in Only_in_SAM or Only_in_WINGS, it is flagged in 🔴 red.")
+
+    # Add code section
+    _ac1, _ac2, _ac3 = st.columns([2, 3, 1])
+    with _ac1:
+        _new_code = st.text_input('Code', key='_mand_dlg_new_code', placeholder='e.g. A1B', label_visibility='collapsed')
+    with _ac2:
+        _new_desc = st.text_input('Description', key='_mand_dlg_new_desc', placeholder='Description', label_visibility='collapsed')
+    with _ac3:
+        if st.button('+ Add', key='_mand_dlg_add_btn', type='primary', use_container_width=True):
+            _nc = _new_code.strip().upper()
+            if _nc:
+                st.session_state['_mand_codes_set'].add(_nc)
+                if _new_desc.strip():
+                    st.session_state['_mand_custom_desc'][_nc] = _new_desc.strip()
+                st.rerun()
+
+    # Search
+    _q = st.text_input('Search codes...', key='_mand_dialog_search', placeholder='Type code or description...')
+    if _q and _q.strip():
+        _qu = _q.strip().upper()
+        _all = [(c, d) for c, d in _all if _qu in c.upper() or _qu in d.upper()]
+        st.caption(f'{len(_all)} results')
     st.divider()
 
+    # Scrollable code list
     _scroll = st.container(height=450)
     with _scroll:
-        # Group by category
-        st.markdown("**All Vehicle Mandatory**")
-        _all_vehicle = {k: v for k, v in mandatory_codes.items()
-                        if not any(x in v for x in ['Tractor', 'Rigid', 'Tipper'])}
-        for i, (code, desc) in enumerate(_all_vehicle.items()):
-            if i % 3 == 0:
-                cols = st.columns(3)
-            cols[i % 3].markdown(f'`{code}` {desc}')
-
-        st.markdown("**Tractor Only**")
-        _tractor = {k: v for k, v in mandatory_codes.items() if 'Tractor' in v}
-        for code, desc in _tractor.items():
-            st.markdown(f'`{code}` {desc}')
-
-        st.markdown("**Rigid Only (From 4-axle)**")
-        _rigid = {k: v for k, v in mandatory_codes.items() if 'From 4-axle' in v and 'Tipper' not in v}
-        for code, desc in _rigid.items():
-            st.markdown(f'`{code}` {desc}')
-
-        st.markdown("**Tipper Only (BM 964230, 964214)**")
-        _tipper = {k: v for k, v in mandatory_codes.items() if 'Tipper' in v}
-        for code, desc in _tipper.items():
-            st.markdown(f'`{code}` {desc}')
+        for i in range(0, len(_all), 3):
+            cols = st.columns(3)
+            for j, col in enumerate(cols):
+                if i + j < len(_all):
+                    code, desc = _all[i + j]
+                    with col:
+                        _cc1, _cc2 = st.columns([5, 1])
+                        _cc1.markdown(f'`{code}` {desc}')
+                        if _cc2.button('✕', key=f'_mand_dlg_del_{code}'):
+                            st.session_state['_mand_codes_set'].discard(code)
+                            st.session_state['_mand_custom_desc'].pop(code, None)
+                            st.rerun()
 
 
 def parse_wings(file) -> pd.DataFrame:
@@ -2377,7 +2396,7 @@ def compare(df_wings: pd.DataFrame, sam_maps_by_month: dict) -> pd.DataFrame:
         sam_codes, sam_file = _get_sam_data(sam_entry, is_pto)
 
         _exc_set = st.session_state.get('_except_codes_set', {c for c in OPTION_CODE_MAP if c and c[0] in {'I','O','Z','U'}})
-        _mand_set = set(MANDATORY_CODES.keys())
+        _mand_set = st.session_state.get('_mand_codes_set', set(MANDATORY_CODES.keys()))
         only_w = sorted(c for c in (wings_codes - sam_codes) if c and c not in _exc_set) if sam_codes else []
         only_s = sorted(c for c in (sam_codes - wings_codes) if c and c not in _exc_set)
         except_codes_row = sorted(
@@ -2754,6 +2773,12 @@ def main():
         mtime_key = f'v5,{folder.name},' + ','.join(f'{p.name}:{p.stat().st_mtime}' for p in file_paths)
         sam_maps_by_month[yyyymm] = _cached_sam_map(str(folder), mtime_key)
 
+    # ── Mandatory codes (dynamic, stored in session state) ──────────────────
+    if '_mand_codes_set' not in st.session_state:
+        st.session_state['_mand_codes_set'] = set(MANDATORY_CODES.keys())
+    if '_mand_custom_desc' not in st.session_state:
+        st.session_state['_mand_custom_desc'] = {}
+
     # ── Exception codes (dynamic, stored in session state) ───────────────────
     _EXCEPT_PREFIXES = ('I', 'O', 'Z', 'U')
     if '_except_codes_set' not in st.session_state:
@@ -2826,8 +2851,9 @@ def main():
                 st.warning('No SAM .docx files found.')
 
         st.markdown('---')
-        if st.button(f'🔴 Mandatory Codes ({len(MANDATORY_CODES)})  — View List', key='_mand_view_btn', use_container_width=True):
-            show_mandatory_codes(MANDATORY_CODES)
+        _mand_count = len(st.session_state.get('_mand_codes_set', set()))
+        if st.button(f'🔴 Mandatory Codes ({_mand_count})  — View List', key='_mand_view_btn', use_container_width=True):
+            show_mandatory_codes()
         if st.button(f'Exception Codes ({len(except_codes)})  — View List', key='_exc_view_btn', use_container_width=True):
             show_exception_codes()
 
