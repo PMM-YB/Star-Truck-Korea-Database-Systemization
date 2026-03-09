@@ -27,6 +27,21 @@ WINGS_PROFILE_DIR = os.path.join(
     "Google", "Chrome", "User Data", "WingsAutomation",
 )
 
+# 자격 증명 파일 경로
+_CREDENTIALS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".wings_credentials")
+
+
+def _load_credentials() -> tuple:
+    """로컬 .wings_credentials 파일에서 이메일/비밀번호를 읽는다."""
+    try:
+        with open(_CREDENTIALS_FILE, "r", encoding="utf-8") as f:
+            lines = f.read().strip().splitlines()
+            if len(lines) >= 2:
+                return lines[0].strip(), lines[1].strip()
+    except FileNotFoundError:
+        pass
+    return None, None
+
 
 def _release_profile_lock():
     """WingsAutomation 프로필을 점유 중인 Chrome을 종료하고 락 파일을 제거한다."""
@@ -200,17 +215,128 @@ async def _wings_download_async(months: list, download_dir: str, on_status=None,
             login_needed = (
                 await page.locator("input[type='password']").count() > 0
                 or await page.locator("input[type='email']").count() > 0
+                or await page.locator("input[placeholder*='Email'], input[placeholder*='User ID']").count() > 0
                 or "login" in page.url.lower()
+                or "businessid" in page.url.lower()
                 or "microsoftonline" in page.url.lower()
             )
         except Exception:
             pass
 
         if login_needed:
-            status("로그인이 필요합니다. 브라우저에서 아이디/비밀번호를 입력해 주세요...")
+            email, password = _load_credentials()
+            auto_login = email and password
 
-            # 사용자가 이메일/비밀번호를 수동 입력할 때까지 대기
-            # Microsoft 2FA 코드 입력 화면이 나타나면 터미널에서 코드 입력 받기
+            if auto_login:
+                status("자동 로그인 시도 중...")
+            else:
+                status("로그인이 필요합니다. 브라우저에서 아이디/비밀번호를 입력해 주세요...")
+
+            # ── Daimler Truck Business ID 로그인 ──
+            if auto_login:
+                # 1) 이메일/User ID 입력 + Continue
+                try:
+                    # Daimler Business ID 페이지의 입력 필드
+                    await page.wait_for_timeout(2000)
+                    # JS로 직접 입력 필드 찾기 (placeholder 기반)
+                    filled = await page.evaluate(
+                        """(email) => {
+                            const inputs = document.querySelectorAll('input');
+                            for (const inp of inputs) {
+                                if (inp.placeholder && (inp.placeholder.includes('Email') || inp.placeholder.includes('User ID'))) {
+                                    inp.focus();
+                                    inp.value = email;
+                                    inp.dispatchEvent(new Event('input', {bubbles: true}));
+                                    inp.dispatchEvent(new Event('change', {bubbles: true}));
+                                    return true;
+                                }
+                            }
+                            // fallback: 보이는 text/email input
+                            for (const inp of inputs) {
+                                if ((inp.type === 'text' || inp.type === 'email') && inp.offsetParent !== null) {
+                                    inp.focus();
+                                    inp.value = email;
+                                    inp.dispatchEvent(new Event('input', {bubbles: true}));
+                                    inp.dispatchEvent(new Event('change', {bubbles: true}));
+                                    return true;
+                                }
+                            }
+                            return false;
+                        }""",
+                        email,
+                    )
+                    if filled:
+                        await page.wait_for_timeout(500)
+                        # Continue 버튼 클릭
+                        clicked = await page.evaluate(
+                            """() => {
+                                const btns = document.querySelectorAll('button, input[type="submit"]');
+                                for (const b of btns) {
+                                    const txt = (b.textContent || b.value || '').trim();
+                                    if (txt === 'Continue' || txt === 'Next' || txt === '계속') {
+                                        b.click();
+                                        return txt;
+                                    }
+                                }
+                                return null;
+                            }"""
+                        )
+                        status(f"이메일 입력 완료, Continue 클릭: {clicked}")
+                        await page.wait_for_timeout(4000)
+                except Exception as e:
+                    status(f"이메일 입력 실패: {e}")
+
+                # 2) 비밀번호 입력 (페이지 전환 후)
+                try:
+                    for _ in range(15):  # 최대 7.5초 대기
+                        pw_visible = await page.evaluate(
+                            """() => {
+                                const pw = document.querySelector('input[type="password"]');
+                                return pw && pw.offsetParent !== null;
+                            }"""
+                        )
+                        if pw_visible:
+                            break
+                        await page.wait_for_timeout(500)
+
+                    if pw_visible:
+                        await page.evaluate(
+                            """(pwd) => {
+                                const pw = document.querySelector('input[type="password"]');
+                                if (pw) {
+                                    pw.focus();
+                                    pw.value = pwd;
+                                    pw.dispatchEvent(new Event('input', {bubbles: true}));
+                                    pw.dispatchEvent(new Event('change', {bubbles: true}));
+                                }
+                            }""",
+                            password,
+                        )
+                        await page.wait_for_timeout(500)
+                        # Sign in / Continue 버튼 클릭
+                        await page.evaluate(
+                            """() => {
+                                const btns = document.querySelectorAll('button, input[type="submit"]');
+                                for (const b of btns) {
+                                    const txt = (b.textContent || b.value || '').trim().toLowerCase();
+                                    if (txt.includes('sign in') || txt.includes('log in') || txt.includes('continue') || txt.includes('submit')) {
+                                        b.click();
+                                        return;
+                                    }
+                                }
+                                // fallback: 첫 번째 submit 버튼
+                                const sub = document.querySelector('input[type="submit"], button[type="submit"]');
+                                if (sub) sub.click();
+                            }"""
+                        )
+                        status("비밀번호 입력 완료, MFA 방법 선택 대기 (4초)...")
+                        await page.wait_for_timeout(4000)
+                except Exception as e:
+                    status(f"비밀번호 입력 실패: {e}")
+
+            # ── 2FA 및 로그인 완료 대기 루프 ──
+            auth_code_used = False
+            mfa_method_selected = False
             for _ in range(360):  # 최대 3분 대기
                 # 이미 WINGS 메인 페이지에 도달했는지 확인
                 try:
@@ -219,36 +345,84 @@ async def _wings_download_async(months: list, download_dir: str, on_status=None,
                 except Exception:
                     pass
 
-                # Microsoft Authenticator 코드 입력 화면 감지
-                try:
-                    code_input = page.locator("input[name='otc'], input#idTxtBx_SAOTCC_OTC, input[aria-label*='code'], input[placeholder*='code']")
-                    if await code_input.count() > 0 and auth_code_callback:
-                        status("Authenticator 코드 입력 대기 중...")
-                        code = auth_code_callback()
-                        if code:
-                            await code_input.first.click()
-                            await code_input.first.fill(code.strip())
-                            await page.wait_for_timeout(500)
-                            # 확인 버튼 클릭
-                            verify_btn = page.locator("input[type='submit'], button[type='submit'], input#idSubmit_SAOTCC_Continue")
-                            if await verify_btn.count() > 0:
-                                await verify_btn.first.click()
-                            status("인증 코드 제출 완료. 로그인 진행 중...")
+                # ── MFA 방법 선택 화면 (Authenticator / Email) ──
+                if not mfa_method_selected:
+                    try:
+                        mfa_page = await page.evaluate(
+                            """() => {
+                                const text = document.body.innerText || '';
+                                if (text.includes('Multi Factor Authentication Method Selection')) {
+                                    // Authenticator 라디오 버튼 선택
+                                    const radios = document.querySelectorAll('input[type="radio"]');
+                                    for (const r of radios) {
+                                        const label = r.parentElement ? r.parentElement.textContent : '';
+                                        if (label.includes('Authenticator')) {
+                                            r.checked = true;
+                                            r.click();
+                                            break;
+                                        }
+                                    }
+                                    // Continue 버튼 클릭
+                                    const btns = document.querySelectorAll('button, input[type="submit"]');
+                                    for (const b of btns) {
+                                        if ((b.textContent || b.value || '').trim() === 'Continue') {
+                                            b.click();
+                                            return true;
+                                        }
+                                    }
+                                }
+                                return false;
+                            }"""
+                        )
+                        if mfa_page:
+                            status("MFA 방법 선택: Authenticator → Continue 클릭, 코드 화면 대기 (3초)...")
+                            mfa_method_selected = True
                             await page.wait_for_timeout(3000)
                             continue
+                    except Exception:
+                        pass
+
+                # ── Verification Code 6자리 개별 입력칸 ──
+                if not auth_code_used:
+                    try:
+                        has_verify = await page.evaluate(
+                            """() => {
+                                const text = document.body.innerText || '';
+                                return text.includes('Verification Code') || text.includes('verification code');
+                            }"""
+                        )
+                        if has_verify and auth_code_callback:
+                            status("Authenticator 코드 자동 입력 중...")
+                            code = auth_code_callback()
+                            if code and len(code) == 6:
+                                # 첫 번째 입력칸 클릭 후 키보드로 6자리 직접 타이핑
+                                first_input = page.locator('input[maxlength="1"]').first
+                                await first_input.click()
+                                await page.wait_for_timeout(300)
+                                for digit in code.strip():
+                                    await page.keyboard.press(digit)
+                                    await page.wait_for_timeout(100)
+                                await page.wait_for_timeout(500)
+                                # Verify 버튼 클릭
+                                await page.get_by_role("button", name="Verify").click()
+                                status("인증 코드 제출 완료. 로그인 진행 중...")
+                                auth_code_used = True
+                                await page.wait_for_timeout(5000)
+                                continue
+                    except Exception:
+                        pass
+
+                # "로그인 상태 유지" 화면 처리
+                try:
+                    stay_signed = page.locator("input#idSIButton9, input[value='Yes'], button:has-text('Yes')")
+                    if await stay_signed.count() > 0:
+                        await stay_signed.first.click()
+                        await page.wait_for_timeout(2000)
+                        continue
                 except Exception:
                     pass
 
                 await page.wait_for_timeout(500)
-
-            # "로그인 상태 유지" 화면 처리
-            try:
-                stay_signed = page.locator("input#idSIButton9, input[value='Yes'], button:has-text('Yes')")
-                if await stay_signed.count() > 0:
-                    await stay_signed.first.click()
-                    await page.wait_for_timeout(2000)
-            except Exception:
-                pass
 
             await page.wait_for_selector("text=Extended search", timeout=60000)
             status("로그인 완료")

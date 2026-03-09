@@ -41,26 +41,10 @@ def get_future_months(months_ahead: int = 6) -> list:
 
 
 def _get_auth_code() -> str:
-    """TOTP 비밀키가 있으면 자동 생성, 없으면 터미널에서 입력받는다."""
-    secret_file = PROJECT_DIR / '.totp_secret'
-
-    # 1) 비밀키 파일이 있으면 자동 생성
-    if secret_file.exists():
-        try:
-            import pyotp
-            secret = secret_file.read_text().strip()
-            totp = pyotp.TOTP(secret)
-            code = totp.now()
-            print(f'  [TOTP 자동 생성: {code}]')
-            return code
-        except ImportError:
-            print('  pyotp가 설치되지 않았습니다. pip install pyotp')
-        except Exception as e:
-            print(f'  TOTP 자동 생성 실패: {e}')
-
-    # 2) 수동 입력 fallback
+    """터미널에서 Authenticator 코드를 입력받는다."""
     print('\n' + '=' * 50)
-    print('  Microsoft Authenticator 코드를 입력하세요')
+    print('  Microsoft Authenticator 앱에서 효성 계정의')
+    print('  6자리 코드를 확인하고 입력하세요')
     print('=' * 50)
     code = input('  코드 (6자리): ').strip()
     print()

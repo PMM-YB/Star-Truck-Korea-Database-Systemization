@@ -47,6 +47,7 @@ nul
 # Secrets (do not commit)
 config.yaml
 .totp_secret
+.wings_credentials
 
 # VS Code
 .vscode/

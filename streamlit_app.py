@@ -1809,6 +1809,37 @@ OPTION_CODE_MAP = {
     "JZYU": "Control code, system approvals list not complete",
 }
 
+# ---------------------------------------------------------------------------
+# Mandatory codes — must always be present; flagged red if found in mismatches
+# ---------------------------------------------------------------------------
+MANDATORY_CODES = {
+    # All vehicle mandatory
+    'D2Y': 'Seat belt monitor',
+    'E6Z': 'Reversing buzzer',
+    'J4X': 'Belt warning w/ seat occupancy',
+    'K7N': 'Exhaust system',
+    'L0A': 'Illumination regulation',
+    'S1D': 'Stability Control Assist',
+    'S1H': 'Lane Keeping Assist',
+    'S1W': 'Active Brake AEBS',
+    'S1P': 'Active Brake AEBS',
+    'S2D': 'Active Brake AEBS',
+    'S2N': 'Active Brake AEBS',
+    'S5A': 'Speed limiter, 90 km/h',
+    'S8C': 'Hazard warning triangle',
+    'V8B': 'Chassis number FIN',
+    'X4B': 'Instrument/labels/publications',
+    'Z5X': 'Left-hand drive',
+    # Tractor only (BM 963425, 964416, 963403)
+    'D2J': 'Seat version, Korea (Tractor only)',
+    # Rigid only (BM 964XXX)
+    'C6H': 'Steering, Servo (From 4-axle)',
+    # Tipper only (BM 964230, 964214)
+    'J9J': 'Pre-installation (Tipper mandatory)',
+    'J9P': 'Pre-installation (Tipper mandatory)',
+    'E4W': 'Starting-off liftable axle (Tipper)',
+}
+
 
 def _lookup_code(code: str) -> str:
     """Return description for a code, stripping leading J for special codes."""
@@ -1828,6 +1859,16 @@ def show_code_details(commission_no: str, sam_str: str, wings_str: str, except_s
     st.markdown(f"**Commission No.:** `{commission_no}`")
     st.divider()
 
+    _mand_set = set(MANDATORY_CODES.keys())
+
+    def _render_code(code: str):
+        """Render a code, highlighting mandatory codes in red."""
+        raw = code.replace('🔴', '').strip()
+        desc = _lookup_code(raw)
+        if raw in _mand_set:
+            return f':red[**`🔴 {raw}`** &nbsp; {desc} *(Mandatory)*]'
+        return f"**`{raw}`** &nbsp; {desc}"
+
     col1, col2 = st.columns(2)
 
     with col1:
@@ -1835,8 +1876,7 @@ def show_code_details(commission_no: str, sam_str: str, wings_str: str, except_s
         sam_codes = [c.strip() for c in str(sam_str).split(",") if c.strip() and c.strip() != "nan"]
         if sam_codes:
             for code in sam_codes:
-                desc = _lookup_code(code)
-                st.markdown(f"**`{code}`** &nbsp; {desc}")
+                st.markdown(_render_code(code))
         else:
             st.info("None")
 
@@ -1845,8 +1885,7 @@ def show_code_details(commission_no: str, sam_str: str, wings_str: str, except_s
         wings_codes = [c.strip() for c in str(wings_str).split(",") if c.strip() and c.strip() != "nan"]
         if wings_codes:
             for code in wings_codes:
-                desc = _lookup_code(code)
-                st.markdown(f"**`{code}`** &nbsp; {desc}")
+                st.markdown(_render_code(code))
         else:
             st.info("None")
 
@@ -1935,6 +1974,39 @@ def show_exception_codes():
                             st.session_state['_except_codes_set'].discard(code)
                             st.session_state['_except_custom_desc'].pop(code, None)
                             st.rerun()
+
+
+@st.dialog("Mandatory Codes List", width="large")
+def show_mandatory_codes(mandatory_codes: dict):
+    st.markdown(f"**Total: {len(mandatory_codes)} codes**")
+    st.caption("These codes must always be present. If any appears in Only_in_SAM or Only_in_WINGS, it is flagged in red.")
+    st.divider()
+
+    _scroll = st.container(height=450)
+    with _scroll:
+        # Group by category
+        st.markdown("**All Vehicle Mandatory**")
+        _all_vehicle = {k: v for k, v in mandatory_codes.items()
+                        if not any(x in v for x in ['Tractor', 'Rigid', 'Tipper'])}
+        for i, (code, desc) in enumerate(_all_vehicle.items()):
+            if i % 3 == 0:
+                cols = st.columns(3)
+            cols[i % 3].markdown(f'`{code}` {desc}')
+
+        st.markdown("**Tractor Only**")
+        _tractor = {k: v for k, v in mandatory_codes.items() if 'Tractor' in v}
+        for code, desc in _tractor.items():
+            st.markdown(f'`{code}` {desc}')
+
+        st.markdown("**Rigid Only (From 4-axle)**")
+        _rigid = {k: v for k, v in mandatory_codes.items() if 'From 4-axle' in v and 'Tipper' not in v}
+        for code, desc in _rigid.items():
+            st.markdown(f'`{code}` {desc}')
+
+        st.markdown("**Tipper Only (BM 964230, 964214)**")
+        _tipper = {k: v for k, v in mandatory_codes.items() if 'Tipper' in v}
+        for code, desc in _tipper.items():
+            st.markdown(f'`{code}` {desc}')
 
 
 def parse_wings(file) -> pd.DataFrame:
@@ -2305,12 +2377,20 @@ def compare(df_wings: pd.DataFrame, sam_maps_by_month: dict) -> pd.DataFrame:
         sam_codes, sam_file = _get_sam_data(sam_entry, is_pto)
 
         _exc_set = st.session_state.get('_except_codes_set', {c for c in OPTION_CODE_MAP if c and c[0] in {'I','O','Z','U'}})
+        _mand_set = set(MANDATORY_CODES.keys())
         only_w = sorted(c for c in (wings_codes - sam_codes) if c and c not in _exc_set) if sam_codes else []
         only_s = sorted(c for c in (sam_codes - wings_codes) if c and c not in _exc_set)
         except_codes_row = sorted(
             c for c in ((wings_codes - sam_codes) | (sam_codes - wings_codes))
             if c and c in _exc_set
         ) if sam_codes else []
+        # Mandatory codes found in mismatches
+        mand_in_sam = [c for c in only_s if c in _mand_set]
+        mand_in_wings = [c for c in only_w if c in _mand_set]
+        mand_codes_row = sorted(set(mand_in_sam + mand_in_wings))
+        # Add 🔴 marker to mandatory codes in Only_in_SAM / Only_in_WINGS
+        only_s_display = [f'🔴{c}' if c in _mand_set else c for c in only_s]
+        only_w_display = [f'🔴{c}' if c in _mand_set else c for c in only_w]
 
         # Place important columns in desired order. Put Model_norm first, then
         # Changeability Date (renamed from 'Vehicle alterable until'), then Until Dealine,
@@ -2350,9 +2430,10 @@ def compare(df_wings: pd.DataFrame, sam_maps_by_month: dict) -> pd.DataFrame:
             'Changeability Date': '',
             'Until Dealine': '',
             'Production date': r.get('Requested delivery date', '') if 'Requested delivery date' in r.index else '',
-            'Only_in_SAM': ','.join(only_s),
-            'Only_in_WINGS': ','.join(only_w) if sam_codes else '',
+            'Only_in_SAM': ','.join(only_s_display),
+            'Only_in_WINGS': ','.join(only_w_display) if sam_codes else '',
             'Exception Codes': ','.join(except_codes_row),
+            'Mandatory Codes': ','.join(mand_codes_row),
             'Compared SAM file name': sam_file,
         }
         
@@ -2745,6 +2826,8 @@ def main():
                 st.warning('No SAM .docx files found.')
 
         st.markdown('---')
+        if st.button(f'🔴 Mandatory Codes ({len(MANDATORY_CODES)})  — View List', key='_mand_view_btn', use_container_width=True):
+            show_mandatory_codes(MANDATORY_CODES)
         if st.button(f'Exception Codes ({len(except_codes)})  — View List', key='_exc_view_btn', use_container_width=True):
             show_exception_codes()
 
@@ -2852,7 +2935,7 @@ def main():
 
         # ── Prepare data splits ──────────────────────────────────────────────
         cols_table = ['Commission no.', 'Baumuster', 'Until Dealine', 'Changeability Date',
-                      'Production date', 'Model(WINGS)', 'Vehicle', 'Type', 'Cab', 'PTO', 'Model(SAM)', 'Only_in_SAM', 'Only_in_WINGS', 'Exception Codes', 'Compared SAM file name']
+                      'Production date', 'Model(WINGS)', 'Vehicle', 'Type', 'Cab', 'PTO', 'Model(SAM)', 'Only_in_SAM', 'Only_in_WINGS', 'Mandatory Codes', 'Exception Codes', 'Compared SAM file name']
 
         # Sort by Production date (earlier months first), then by Until Dealine
         if 'Production date' in comp.columns:
