@@ -2438,7 +2438,10 @@ def _parse_single_sam_file(file_obj, name: str, mapping: dict, log_fn=None):
 
     if not model_raw:
         fname_upper = name.upper()
-        m = re.search(r'(\d{4}\s*[A-Z]{1,3})', fname_upper)
+        # Try model with suffix letters (e.g. 4453K, 2851LS) but stop before cab codes like C3H, S5F
+        m = re.search(r'(\d{4}\s*[A-Z]{0,3})(?=\s+[A-Z]\d[A-Z]|\s+\d[Xx]\d|\s+HUB|\s+CLASSIC|\s+EURO|\s|$)', fname_upper)
+        if not m:
+            m = re.search(r'(\d{4}\s*[A-Z]{1,3})', fname_upper)
         if m:
             model_raw = m.group(1)
 
