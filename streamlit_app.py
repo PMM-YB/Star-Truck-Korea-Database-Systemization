@@ -2483,9 +2483,10 @@ def parse_sam_docx(uploaded_files) -> dict:
 def compare(df_wings: pd.DataFrame, sam_maps_by_month: dict) -> pd.DataFrame:
     sorted_yyyymm = sorted(sam_maps_by_month.keys())
 
-    def _get_sam_map_for_prod_date(prod_date_raw) -> dict:
-        """Return the most recent SAM map whose month <= production month.
-        Falls back to the latest available map if no match or unparseable."""
+    def _get_sam_maps_for_prod_date(prod_date_raw) -> list:
+        """Return SAM maps ordered by priority (most recent month <= production month first).
+        Falls back to older months so partial SAM folders don't cause missing matches."""
+        result = []
         if prod_date_raw:
             try:
                 prod_dt = pd.to_datetime(str(prod_date_raw), errors='coerce')
@@ -2493,15 +2494,16 @@ def compare(df_wings: pd.DataFrame, sam_maps_by_month: dict) -> pd.DataFrame:
                     prod_yyyymm = prod_dt.year * 100 + prod_dt.month
                     for yyyymm in reversed(sorted_yyyymm):
                         if yyyymm <= prod_yyyymm:
-                            return sam_maps_by_month[yyyymm]
+                            result.append(sam_maps_by_month[yyyymm])
+                    return result if result else [sam_maps_by_month[sorted_yyyymm[-1]]]
             except Exception:
                 pass
-        return sam_maps_by_month[sorted_yyyymm[-1]] if sorted_yyyymm else {}
+        return [sam_maps_by_month[sorted_yyyymm[-1]]] if sorted_yyyymm else []
 
     rows = []
     for _, r in df_wings.iterrows():
         prod_date_raw = r.get('Requested delivery date', '') if 'Requested delivery date' in r.index else ''
-        sam_map = _get_sam_map_for_prod_date(prod_date_raw)
+        sam_maps_list = _get_sam_maps_for_prod_date(prod_date_raw)
 
         com = r['Commission no.']
         # Handle both 'Model' (new format) and 'Baumuster' (legacy format)
@@ -2530,12 +2532,40 @@ def compare(df_wings: pd.DataFrame, sam_maps_by_month: dict) -> pd.DataFrame:
                 return data['codes'], data['file']
             return set(), ''
 
-        # Look up SAM entry using normalized model (exact match first)
-        sam_entry = sam_map.get(model_norm, {})
-        _probe_codes, _ = _get_sam_data(sam_entry, is_pto)
+        # Try each SAM map in priority order (most recent first, then older)
+        sam_entry = {}
+        sam_map = sam_maps_list[0] if sam_maps_list else {}
+        for _try_map in sam_maps_list:
+            # Exact match first
+            _try_entry = _try_map.get(model_norm, {})
+            _try_codes, _ = _get_sam_data(_try_entry, is_pto)
+            if _try_codes:
+                sam_entry = _try_entry
+                sam_map = _try_map
+                break
+            # Relaxed matching: numeric prefix + letter suffix
+            num_norm, suf_norm = _split_model(model_norm)
+            _found = False
+            for k, v in _try_map.items():
+                try:
+                    k_norm = _normalize_model(k)
+                except Exception:
+                    k_norm = _normalize_model(str(k))
+                num_k, suf_k = _split_model(k_norm)
+                if k_norm == model_norm or (num_k == num_norm and suf_k == suf_norm):
+                    _try_codes2, _ = _get_sam_data(v, is_pto)
+                    if _try_codes2:
+                        sam_entry = v
+                        sam_map = _try_map
+                        _found = True
+                        break
+            if _found:
+                break
 
-        # If no exact match, try relaxed matching: numeric prefix must match AND letter suffix must match
-        if not _probe_codes:
+        # If still no match after trying all maps, do one last relaxed search on the primary map
+        _probe_codes, _ = _get_sam_data(sam_entry, is_pto)
+        if not _probe_codes and sam_maps_list:
+            sam_map = sam_maps_list[0]
             num_norm, suf_norm = _split_model(model_norm)
             for k, v in sam_map.items():
                 try:
@@ -2543,7 +2573,6 @@ def compare(df_wings: pd.DataFrame, sam_maps_by_month: dict) -> pd.DataFrame:
                 except Exception:
                     k_norm = _normalize_model(str(k))
                 num_k, suf_k = _split_model(k_norm)
-                # numeric prefixes must match AND suffixes must match (both empty counts as match)
                 if k_norm == model_norm or (num_k == num_norm and suf_k == suf_norm):
                     sam_entry = v
                     break
@@ -2561,19 +2590,20 @@ def compare(df_wings: pd.DataFrame, sam_maps_by_month: dict) -> pd.DataFrame:
 
         _exc_set = st.session_state.get('_except_codes_set', {c for c in OPTION_CODE_MAP if c and c[0] in {'I','O','Z','U'}})
         _mand_set = st.session_state.get('_mand_codes_set', set(MANDATORY_CODES.keys()))
-        only_w = sorted(c for c in (wings_codes - sam_codes) if c and c not in _exc_set) if sam_codes else []
-        only_s = sorted(c for c in (sam_codes - wings_codes) if c and c not in _exc_set)
+        # Exclude both exception codes AND mandatory codes from Only_in lists
+        only_w = sorted(c for c in (wings_codes - sam_codes) if c and c not in _exc_set and c not in _mand_set) if sam_codes else []
+        only_s = sorted(c for c in (sam_codes - wings_codes) if c and c not in _exc_set and c not in _mand_set)
         except_codes_row = sorted(
             c for c in ((wings_codes - sam_codes) | (sam_codes - wings_codes))
             if c and c in _exc_set
         ) if sam_codes else []
-        # Mandatory codes found in mismatches
-        mand_in_sam = [c for c in only_s if c in _mand_set]
-        mand_in_wings = [c for c in only_w if c in _mand_set]
+        # Mandatory codes found in mismatches (for Mandatory Codes column)
+        mand_in_sam = [c for c in sorted(sam_codes - wings_codes) if c and c in _mand_set]
+        mand_in_wings = [c for c in sorted(wings_codes - sam_codes) if c and c in _mand_set]
         mand_codes_row = sorted(set(mand_in_sam + mand_in_wings))
-        # Add 🔴 marker to mandatory codes in Only_in_SAM / Only_in_WINGS
-        only_s_display = [f'🔴{c}' if c in _mand_set else c for c in only_s]
-        only_w_display = [f'🔴{c}' if c in _mand_set else c for c in only_w]
+        # No 🔴 markers needed - mandatory codes are in their own section now
+        only_s_display = list(only_s)
+        only_w_display = list(only_w)
 
         # Place important columns in desired order. Put Model_norm first, then
         # Changeability Date (renamed from 'Vehicle alterable until'), then Until Dealine,
@@ -2604,12 +2634,12 @@ def compare(df_wings: pd.DataFrame, sam_maps_by_month: dict) -> pd.DataFrame:
         row_dict = {
             'Commission no.': com,
             'Baumuster': r.get('Baumuster', '') if 'Baumuster' in r.index else baumuster_num,
-            'Model(WINGS)': str(r.get('Model', model_raw) if 'Model' in r.index else model_raw).replace('4140', '4440'),
+            'Model(WINGS)': re.sub(r'DNA$', '', str(r.get('Model', model_raw) if 'Model' in r.index else model_raw).strip()).replace('4140', '4440'),
             'Vehicle': _vehicle,
             'Type': _axle_type,
             'Cab': _cab_code,
             'PTO': _pto_flag,
-            'Model(SAM)': _normalize_model(r.get('Model') or r.get('Baumuster') or model_raw),
+            'Model(SAM)': re.sub(r'DNA$', '', re.sub(r'[^A-Z0-9]', '', str(r.get('Model') or r.get('Baumuster') or model_raw).upper().strip())),
             'Changeability Date': '',
             'Until Dealine': '',
             'Production date': r.get('Requested delivery date', '') if 'Requested delivery date' in r.index else '',
