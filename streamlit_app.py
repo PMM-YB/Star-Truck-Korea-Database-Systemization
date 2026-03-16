@@ -2677,17 +2677,26 @@ def compare(df_wings: pd.DataFrame, sam_maps_by_month: dict) -> pd.DataFrame:
             # PTO
             if re.search(r'\bPTO\b', sam_file, re.IGNORECASE):
                 _pto_flag = 'PTO'
+        # Fallback: infer Vehicle from model number if SAM didn't provide it
+        if not _vehicle:
+            _model_upper = model_raw.upper()
+            if any(k in _model_upper for k in ['2651', '2851', '2653', '2853', '2663', '2863']):
+                _vehicle = 'Actros-L'
+            elif any(k in _model_upper for k in ['3363']):
+                _vehicle = 'Actros'
+            elif any(k in _model_upper for k in ['2643', '3343', '4153', '4453', '3253', '2135', '4440', '4140']):
+                _vehicle = 'Arocs'
 
         # Start with explicit copies from the WINGS row to avoid accidental blanks
         row_dict = {
             'Commission no.': com,
             'Baumuster': r.get('Baumuster', '') if 'Baumuster' in r.index else baumuster_num,
-            'Model(WINGS)': re.sub(r'DNA$', '', str(r.get('Model', model_raw) if 'Model' in r.index else model_raw).strip()).replace('4140', '4440').replace('2651 LS', '2851 LS').replace('2653 LS', '2853 LS').replace('2663 LS', '2863 LS'),
+            'Model(WINGS)': re.sub(r'DNA$', '', str(r.get('Model', model_raw) if 'Model' in r.index else model_raw).strip()).replace('4140', '4440').replace('2651 LS', '2851 LS').replace('2653 LS', '2853 LS').replace('2663 LS', '2863 LS').replace('2643 A', '3343 A'),
             'Vehicle': _vehicle,
             'Type': _axle_type,
             'Cab': _cab_code,
             'PTO': _pto_flag,
-            'Model(SAM)': re.sub(r'4453|4153|2853|2851', lambda m: {'4453':'4153','4153':'3253','2853':'2653','2851':'2651'}[m.group()], re.sub(r'DNA$', '', re.sub(r'[^A-Z0-9]', '', str(r.get('Model') or r.get('Baumuster') or model_raw).upper().strip()))),
+            'Model(SAM)': re.sub(r'4453|4153|3343|2853|2851', lambda m: {'4453':'4153','4153':'3253','3343':'2643','2853':'2653','2851':'2651'}[m.group()], re.sub(r'DNA$', '', re.sub(r'[^A-Z0-9]', '', str(r.get('Model') or r.get('Baumuster') or model_raw).upper().strip()))),
             'Changeability Date': '',
             'Until Dealine': '',
             'Production date': r.get('Requested delivery date', '') if 'Requested delivery date' in r.index else '',
@@ -3007,8 +3016,9 @@ def main():
     # Apply visuals if available (background first, then logo overlay)
     if bg_path and bg_path.exists():
         _set_background_from_path(bg_path)
-    if logo_path and logo_path.exists():
-        _set_logo_from_path(logo_path)
+    # logo disabled - Star Truck Korea logo removed
+    # if logo_path and logo_path.exists():
+    #     _set_logo_from_path(logo_path)
 
     # ── Dark navy header bar ─────────────────────────────────────────────────
     logo_file = Path('MB Star_Logo_black.png')
@@ -3186,7 +3196,7 @@ def main():
     _sel_months = st.multiselect(
         'Select Production Month(s)',
         options=_month_opts,
-        default=st.session_state.get('_auto_fetch_months', [f'{_today.year}-{_today.month:02d}']),
+        default=st.session_state.get('_auto_fetch_months', []),
         key='wings_months_main',
     )
     _main_col1, _main_col2 = st.columns([2, 1])
@@ -3250,8 +3260,8 @@ def main():
         wings_file = io.BytesIO(st.session_state['_wings_auto_bytes'])
         st.info(f"Using auto-downloaded file: {st.session_state.get('_wings_auto_name', 'wings.xlsx')}")
 
-    # Fallback: load latest file from wings_data/ (pushed by scheduler)
-    if wings_file is None:
+    # Fallback: load latest file from wings_data/ only in auto_fetch mode
+    if wings_file is None and _auto_fetch_mode:
         _wd = Path('wings_data')
         if _wd.exists():
             _wfiles = sorted(_wd.glob('WINGS_*.csv'), key=lambda p: p.stat().st_mtime, reverse=True)
@@ -3267,7 +3277,7 @@ def main():
 
         # ── Prepare data splits ──────────────────────────────────────────────
         cols_table = ['Commission no.', 'Baumuster', 'Until Dealine', 'Changeability Date',
-                      'Production date', 'Model(WINGS)', 'Vehicle', 'Type', 'Cab', 'PTO', 'Model(SAM)', 'Only_in_SAM', 'Only_in_WINGS', 'Mandatory Codes', 'Production Codes', 'Compared SAM file name']
+                      'Production date', 'Vehicle', 'Model(WINGS)', 'Type', 'Cab', 'PTO', 'Model(SAM)', 'Only_in_SAM', 'Only_in_WINGS', 'Mandatory Codes', 'Production Codes', 'Compared SAM file name']
         _hidden_cols = ['_all_wings_codes', '_all_sam_codes']
 
         # Sort by Production date (earlier months first), then by Until Dealine
