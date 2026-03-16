@@ -3,7 +3,7 @@ import pandas as pd
 import io
 import os
 import re
-from datetime import date
+from datetime import date, timedelta
 import base64
 from pathlib import Path
 import zipfile
@@ -2024,6 +2024,14 @@ def show_code_details(commission_no: str, sam_str: str, wings_str: str, except_s
     buf = io.BytesIO()
     with pd.ExcelWriter(buf, engine="openpyxl") as writer:
         df_export.to_excel(writer, index=False, sheet_name=f"{commission_no}")
+        ws = writer.sheets[f"{commission_no}"]
+        for col_cells in ws.columns:
+            max_len = 0
+            col_letter = col_cells[0].column_letter
+            for cell in col_cells:
+                val = str(cell.value) if cell.value is not None else ''
+                max_len = max(max_len, len(val))
+            ws.column_dimensions[col_letter].width = min(max_len + 2, 60)
     buf.seek(0)
     _, btn_col = st.columns([4, 1])
     with btn_col:
@@ -2036,8 +2044,13 @@ def show_code_details(commission_no: str, sam_str: str, wings_str: str, except_s
         )
 
 
-@st.dialog("Exception Codes List", width="large")
+@st.dialog("Production Codes List", width="large")
 def show_exception_codes():
+    st.markdown("""<style>
+    [data-testid="stDialog"] button[kind="secondary"] {
+        padding: 2px 8px; font-size: 12px; min-height: 0; line-height: 1.2;
+    }
+    </style>""", unsafe_allow_html=True)
     _exc_set = st.session_state.get('_except_codes_set', set())
     _exc_custom = st.session_state.get('_except_custom_desc', {})
     _all = sorted(
@@ -2078,9 +2091,9 @@ def show_exception_codes():
                 if i + j < len(_all):
                     code, desc = _all[i + j]
                     with col:
-                        _cc1, _cc2 = st.columns([5, 1])
-                        _cc1.markdown(f'`{code}` {desc}')
-                        if _cc2.button('✕', key=f'_exc_dlg_del_{code}'):
+                        _cc1, _cc2 = st.columns([8, 1])
+                        _cc1.markdown(f'<span style="font-size:15px"><b style="color:#2a7ab5">{code}</b>&nbsp; {desc}</span>', unsafe_allow_html=True)
+                        if _cc2.button('×', key=f'_exc_dlg_del_{code}'):
                             st.session_state['_except_codes_set'].discard(code)
                             st.session_state['_except_custom_desc'].pop(code, None)
                             st.rerun()
@@ -2088,6 +2101,11 @@ def show_exception_codes():
 
 @st.dialog("Mandatory Codes List", width="large")
 def show_mandatory_codes():
+    st.markdown("""<style>
+    [data-testid="stDialog"] button[kind="secondary"] {
+        padding: 2px 8px; font-size: 12px; min-height: 0; line-height: 1.2;
+    }
+    </style>""", unsafe_allow_html=True)
     _mand_set = st.session_state.get('_mand_codes_set', set(MANDATORY_CODES.keys()))
     _mand_custom = st.session_state.get('_mand_custom_desc', {})
     _all = []
@@ -2101,7 +2119,7 @@ def show_mandatory_codes():
         _all.append((code, desc_display))
 
     st.markdown(f"**Total: {len(_all)} codes**")
-    st.caption("These codes must always be present. If any appears in Only_in_SAM or Only_in_WINGS, it is flagged in 🔴 red.")
+    st.markdown('<span style="color:red; font-size:13px;">These are codes that still need modification. For reference only.</span>', unsafe_allow_html=True)
 
     # Add code section
     _ac1, _ac2, _ac3 = st.columns([2, 3, 1])
@@ -2128,9 +2146,9 @@ def show_mandatory_codes():
 
     # Helper to render a code row with delete button
     def _render_mand_row(code, desc):
-        _cc1, _cc2 = st.columns([5, 1])
-        _cc1.markdown(f'`{code}` {desc}')
-        if _cc2.button('✕', key=f'_mand_dlg_del_{code}'):
+        _cc1, _cc2 = st.columns([8, 1])
+        _cc1.markdown(f'<span style="font-size:15px"><b style="color:#2a7ab5">{code}</b>&nbsp; {desc}</span>', unsafe_allow_html=True)
+        if _cc2.button('×', key=f'_mand_dlg_del_{code}'):
             st.session_state['_mand_codes_set'].discard(code)
             st.session_state['_mand_custom_desc'].pop(code, None)
             st.rerun()
@@ -2315,13 +2333,15 @@ def _normalize_model(model: str) -> str:
     """Normalize model name: remove spaces/DNA, apply historic mappings, convert 28xx->26xx"""
     if not isinstance(model, str):
         return ''
-    # Remove all non-alphanumeric, convert to uppercase, remove DNA
-    cleaned = re.sub(r'[^A-Z0-9]', '', model.upper().replace('DNA', '').strip())
+    # Remove axle patterns (e.g. 8x4, 6x2), DNA suffix, then non-alphanumeric
+    tmp = re.sub(r'\d[Xx]\d', '', model)  # remove axle info like 8x4, 6x2
+    cleaned = re.sub(r'[^A-Z0-9]', '', tmp.upper().replace('DNA', '').strip())
     
     # Apply historic mappings (4153->3253, etc)
     historic = {
-        '4153': '3253',
+        '3253': '4153',
         '4140': '4440',
+        '2643': '3343',
         '2851': '2651',
         '2135': '1835',
         '2863': '2663',
@@ -2436,14 +2456,18 @@ def _parse_single_sam_file(file_obj, name: str, mapping: dict, log_fn=None):
             log_fn(f'SAM file read error ({name}): {str(e)[:80]}')
         return
 
-    if not model_raw:
-        fname_upper = name.upper()
-        # Try model with suffix letters (e.g. 4453K, 2851LS) but stop before cab codes like C3H, S5F
-        m = re.search(r'(\d{4}\s*[A-Z]{0,3})(?=\s+[A-Z]\d[A-Z]|\s+\d[Xx]\d|\s+HUB|\s+CLASSIC|\s+EURO|\s|$)', fname_upper)
-        if not m:
-            m = re.search(r'(\d{4}\s*[A-Z]{1,3})', fname_upper)
-        if m:
-            model_raw = m.group(1)
+    # Always try to extract model from filename - prefer filename over document content
+    # because document content may contain older/internal model numbers (e.g. 4153 inside a 4453K file)
+    fname_upper = name.upper()
+    fname_model = None
+    m_fname = re.search(r'(\d{4}\s*[A-Z]{0,3})(?=\s+[A-Z]\d[A-Z]|\s+\d[Xx]\d|\s+HUB|\s+CLASSIC|\s+EURO|\s|$)', fname_upper)
+    if not m_fname:
+        m_fname = re.search(r'(\d{4}\s*[A-Z]{1,3})', fname_upper)
+    if m_fname:
+        fname_model = m_fname.group(1)
+    # Use filename model if available, otherwise fall back to document content
+    if fname_model:
+        model_raw = fname_model
 
     if model_raw and codes:
         model_norm = _normalize_model(model_raw)
@@ -2468,6 +2492,26 @@ def load_sam_from_folder(folder: Path) -> dict:
     for fpath in sam_files:
         with open(fpath, 'rb') as fobj:
             _parse_single_sam_file(fobj, fpath.name, mapping)
+    # Add aliases: if filename model differs from document-internal model,
+    # Auto-generate aliases: for each existing key, create aliases using
+    # the reverse of _normalize_model's historic mappings so WINGS models
+    # (which use newer numbering) can find SAM data (which uses older numbering).
+    _reverse_prefixes = {
+        '3253': ['4153', '4453'],   # SAM 3253 <- WINGS 4153, 4453
+        '4153': ['4453'],           # SAM 4153 <- WINGS 4453
+    }
+    existing_keys = list(mapping.keys())
+    for key in existing_keys:
+        m = re.match(r'^(\d+)([A-Z]*)$', key)
+        if not m:
+            continue
+        num, suffix = m.group(1), m.group(2)
+        for src_prefix, alias_prefixes in _reverse_prefixes.items():
+            if num == src_prefix:
+                for ap in alias_prefixes:
+                    alias_key = ap + suffix
+                    if alias_key not in mapping:
+                        mapping[alias_key] = mapping[key]
     return mapping
 
 
@@ -2638,18 +2682,18 @@ def compare(df_wings: pd.DataFrame, sam_maps_by_month: dict) -> pd.DataFrame:
         row_dict = {
             'Commission no.': com,
             'Baumuster': r.get('Baumuster', '') if 'Baumuster' in r.index else baumuster_num,
-            'Model(WINGS)': re.sub(r'DNA$', '', str(r.get('Model', model_raw) if 'Model' in r.index else model_raw).strip()).replace('4140', '4440'),
+            'Model(WINGS)': re.sub(r'DNA$', '', str(r.get('Model', model_raw) if 'Model' in r.index else model_raw).strip()).replace('4140', '4440').replace('2651 LS', '2851 LS').replace('2653 LS', '2853 LS').replace('2663 LS', '2863 LS'),
             'Vehicle': _vehicle,
             'Type': _axle_type,
             'Cab': _cab_code,
             'PTO': _pto_flag,
-            'Model(SAM)': re.sub(r'DNA$', '', re.sub(r'[^A-Z0-9]', '', str(r.get('Model') or r.get('Baumuster') or model_raw).upper().strip())).replace('4140', '4440'),
+            'Model(SAM)': re.sub(r'4453|4153|2853|2851', lambda m: {'4453':'4153','4153':'3253','2853':'2653','2851':'2651'}[m.group()], re.sub(r'DNA$', '', re.sub(r'[^A-Z0-9]', '', str(r.get('Model') or r.get('Baumuster') or model_raw).upper().strip()))),
             'Changeability Date': '',
             'Until Dealine': '',
             'Production date': r.get('Requested delivery date', '') if 'Requested delivery date' in r.index else '',
             'Only_in_SAM': ','.join(only_s_display),
             'Only_in_WINGS': ','.join(only_w_display) if sam_codes else '',
-            'Exception Codes': ','.join(except_codes_row),
+            'Production Codes': ','.join(except_codes_row),
             'Mandatory Codes': ','.join(mand_codes_row),
             '_all_wings_codes': ','.join(sorted(wings_codes)),
             '_all_sam_codes': ','.join(sorted(sam_codes)),
@@ -2704,10 +2748,12 @@ def _style_deadline(df: pd.DataFrame) -> pd.DataFrame:
     styles = pd.DataFrame('', index=df.index, columns=df.columns)
     if 'Until Dealine' in df.columns:
         deadline_num = pd.to_numeric(df['Until Dealine'], errors='coerce')
-        mask = deadline_num.lt(0) | (df['Until Dealine'].astype(str).str.strip().str.lower() == 'passed')
+        mask_passed = deadline_num.lt(0) | (df['Until Dealine'].astype(str).str.strip().str.lower() == 'passed')
+        mask_orange = (~mask_passed) & deadline_num.le(14) & deadline_num.ge(0)
         for col in ('Until Dealine', 'Changeability Date'):
             if col in df.columns:
-                styles.loc[mask, col] = 'color: red; font-weight: bold'
+                styles.loc[mask_passed, col] = 'color: red; font-weight: bold'
+                styles.loc[mask_orange, col] = 'color: orange; font-weight: bold'
     return styles
 
 
@@ -2716,12 +2762,20 @@ def to_excel_bytes(df: pd.DataFrame) -> bytes:
     with pd.ExcelWriter(towrite, engine='openpyxl') as writer:
         # Select key columns for output in desired order
         output_cols = ['Commission no.', 'Baumuster', 'Model(WINGS)', 'Vehicle', 'Type', 'Cab', 'PTO', 'Model(SAM)', 'Changeability Date',
-                       'Until Dealine', 'Production date', 'Only_in_SAM', 'Only_in_WINGS', 'Exception Codes',
+                       'Until Dealine', 'Production date', 'Only_in_SAM', 'Only_in_WINGS', 'Production Codes',
                        'Order status financial', 'Order status logistical', 'Gross equipment price (repricing)',
                        'Additional equipment (enumeration)', 'FIN', 'Subcategory (ID)',
                        'Requested delivery date', 'Compared SAM file name']
         available_cols = [c for c in output_cols if c in df.columns]
         df[available_cols].to_excel(writer, index=False, sheet_name='comparison')
+        ws = writer.sheets['comparison']
+        for col_cells in ws.columns:
+            max_len = 0
+            col_letter = col_cells[0].column_letter
+            for cell in col_cells:
+                val = str(cell.value) if cell.value is not None else ''
+                max_len = max(max_len, len(val))
+            ws.column_dimensions[col_letter].width = min(max_len + 2, 60)
     return towrite.getvalue()
 
 
@@ -2731,6 +2785,29 @@ def main():
     # ── Global CSS ────────────────────────────────────────────────────────────
     st.markdown("""
     <style>
+    /* Remove Streamlit default top padding */
+    .block-container {
+        padding-top: 0rem !important;
+    }
+    header[data-testid="stHeader"] {
+        display: none !important;
+    }
+
+    /* Page background */
+    .stApp {
+        background-color: #f0f2f5;
+    }
+
+    /* Content sections as white cards */
+    .section-card {
+        background: #ffffff;
+        border-radius: 10px;
+        padding: 1.5rem 2rem;
+        margin-bottom: 1rem;
+        box-shadow: 0 1px 6px rgba(0,0,0,0.08);
+        border: 1px solid #e0e4e8;
+    }
+
     /* Dataframe column headers */
     [data-testid="stDataFrame"] div[role="columnheader"],
     [data-testid="stDataFrame"] div[role="columnheader"] *,
@@ -2769,37 +2846,37 @@ def main():
     /* Dark navy header bar */
     .header-bar {
         background: linear-gradient(135deg, #0d1b2a 0%, #1a3a5c 60%, #1f618d 100%);
-        padding: 1.2rem 2rem;
-        border-radius: 10px;
-        margin-bottom: 1.2rem;
+        padding: 1.2rem 2.5rem;
+        border-radius: 0;
+        margin: -1rem -1rem 1.5rem -1rem;
         display: flex;
         align-items: center;
-        gap: 1.2rem;
-        box-shadow: 0 4px 16px rgba(0,0,0,0.15);
+        gap: 1.5rem;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.2);
     }
     .header-bar img {
-        height: 52px;
+        height: 72px;
         filter: brightness(0) invert(1);
     }
     .header-bar .title {
         color: #ffffff;
-        font-size: 1.65rem;
+        font-size: 2.1rem;
         font-weight: 700;
         letter-spacing: 0.5px;
     }
     .header-bar .subtitle {
         color: rgba(255,255,255,0.7);
-        font-size: 0.85rem;
-        margin-top: 2px;
+        font-size: 1rem;
+        margin-top: 4px;
     }
 
     /* KPI metric cards */
     .kpi-card {
         background: #ffffff;
-        border-radius: 10px;
-        padding: 1rem 1.2rem;
-        box-shadow: 0 2px 8px rgba(0,0,0,0.08);
-        border-left: 4px solid #1a3a5c;
+        border-radius: 12px;
+        padding: 1.5rem 1.5rem;
+        box-shadow: 0 2px 12px rgba(0,0,0,0.10);
+        border-left: 5px solid #1a3a5c;
         text-align: center;
     }
     .kpi-card.red { border-left-color: #cb4335; }
@@ -2807,7 +2884,7 @@ def main():
     .kpi-card.blue { border-left-color: #1f618d; }
     .kpi-card.orange { border-left-color: #e67e22; }
     .kpi-card .kpi-value {
-        font-size: 2.2rem;
+        font-size: 2.8rem;
         font-weight: 700;
         margin: 0;
         line-height: 1.2;
@@ -2817,16 +2894,18 @@ def main():
     .kpi-card.blue .kpi-value { color: #1f618d; }
     .kpi-card.orange .kpi-value { color: #e67e22; }
     .kpi-card .kpi-label {
-        font-size: 0.8rem;
-        color: #666;
+        font-size: 1rem;
+        color: #444;
         margin: 0;
         text-transform: uppercase;
         letter-spacing: 0.5px;
+        font-weight: 600;
     }
 
     /* Sidebar styling */
     [data-testid="stSidebar"] {
-        background: linear-gradient(180deg, #f8f9fa 0%, #eef1f5 100%);
+        background: #ffffff;
+        border-right: 1px solid #d0d5db;
     }
     [data-testid="stSidebar"] .stMarkdown h3 {
         color: #1a3a5c;
@@ -2836,12 +2915,19 @@ def main():
 
     /* Tab styling */
     .stTabs [data-baseweb="tab-list"] {
-        gap: 8px;
+        gap: 12px;
+        border-bottom: 2px solid #e0e0e0;
     }
     .stTabs [data-baseweb="tab"] {
-        border-radius: 6px 6px 0 0;
-        padding: 8px 20px;
-        font-weight: 600;
+        border-radius: 8px 8px 0 0;
+        padding: 14px 28px;
+        font-weight: 700;
+        font-size: 1.1rem;
+    }
+    .stTabs [aria-selected="true"] {
+        background: #1a3a5c;
+        color: white !important;
+        border-radius: 8px 8px 0 0;
     }
     </style>
     """, unsafe_allow_html=True)
@@ -2970,7 +3056,7 @@ def main():
         if not file_paths:
             continue  # skip empty folders so comparison falls back to nearest month with data
         all_sam_file_paths.extend(file_paths)
-        mtime_key = f'v5,{folder.name},' + ','.join(f'{p.name}:{p.stat().st_mtime}' for p in file_paths)
+        mtime_key = f'v10,{folder.name},' + ','.join(f'{p.name}:{p.stat().st_mtime}' for p in file_paths)
         sam_maps_by_month[yyyymm] = _cached_sam_map(str(folder), mtime_key)
 
     # ── Mandatory codes (dynamic, stored in session state) ──────────────────
@@ -3054,7 +3140,7 @@ def main():
         _mand_count = len(st.session_state.get('_mand_codes_set', set()))
         if st.button(f'🔴 Mandatory Codes ({_mand_count})  — View List', key='_mand_view_btn', use_container_width=True):
             show_mandatory_codes()
-        if st.button(f'Exception Codes ({len(except_codes)})  — View List', key='_exc_view_btn', use_container_width=True):
+        if st.button(f'Production Codes ({len(except_codes)})  — View List', key='_exc_view_btn', use_container_width=True):
             show_exception_codes()
 
         _new_code = st.text_input('Code', key='_exc_new_code', placeholder='e.g. A1B', label_visibility='collapsed')
@@ -3071,18 +3157,36 @@ def main():
 
     # ── Month options (shared) ────────────────────────────────────────────────
     _today = date.today()
+    _end_date = date(_today.year + 1, _today.month, 1)
     _month_opts = []
-    for _y in range(2024, _today.year + 2):
-        for _m in range(1, 13):
-            _month_opts.append(f'{_y}-{_m:02d}')
-    _month_opts = [m for m in _month_opts if m <= f'{_today.year + 1}-12']
+    _d = date(_today.year, _today.month, 1)
+    while _d <= _end_date:
+        _month_opts.append(f'{_d.year}-{_d.month:02d}')
+        if _d.month == 12:
+            _d = date(_d.year + 1, 1, 1)
+        else:
+            _d = date(_d.year, _d.month + 1, 1)
+
+    # ── Auto-fetch via query parameter (?auto_fetch=true) ────────────────────
+    _qp = st.query_params
+    _auto_fetch_mode = _qp.get('auto_fetch', '').lower() == 'true'
+    if _auto_fetch_mode and not st.session_state.get('_auto_fetch_done') and not st.session_state.get('_wings_auto_bytes'):
+        # Build months: this month + future months up to +6
+        _auto_months = []
+        for _i in range(7):
+            _d = date(_today.year, _today.month, 1) + timedelta(days=32 * _i)
+            _ms = f"{_d.year}-{_d.month:02d}"
+            if _ms not in _auto_months:
+                _auto_months.append(_ms)
+        st.session_state['_auto_fetch_months'] = _auto_months
+        st.session_state['_auto_fetch_trigger'] = True
 
     # ── Search by Production Date (main area) ───────────────────────────────
     st.subheader('Search by Production Date')
     _sel_months = st.multiselect(
         'Select Production Month(s)',
         options=_month_opts,
-        default=[f'{_today.year}-{_today.month:02d}'],
+        default=st.session_state.get('_auto_fetch_months', [f'{_today.year}-{_today.month:02d}']),
         key='wings_months_main',
     )
     _main_col1, _main_col2 = st.columns([2, 1])
@@ -3101,8 +3205,9 @@ def main():
                 st.session_state.pop('_wings_auto_name', None)
                 st.rerun()
 
-    # ── Handle Auto-fetch ─────────────────────────────────────────────────────
-    if _fetch_btn and _sel_months:
+    # ── Handle Auto-fetch (button OR auto_fetch query param) ────────────────
+    _auto_trigger = st.session_state.pop('_auto_fetch_trigger', False)
+    if (_fetch_btn or _auto_trigger) and _sel_months:
         if not _WINGS_AUTO:
             st.warning('Auto-fetch requires the local environment with WINGS access. Please upload a file manually below.')
         else:
@@ -3123,6 +3228,7 @@ def main():
                 with open(_dl_path, 'rb') as _f:
                     st.session_state['_wings_auto_bytes'] = _f.read()
                 st.session_state['_wings_auto_name'] = os.path.basename(_dl_path)
+                st.session_state['_auto_fetch_done'] = True
                 _status_ph.success(f"Download complete: {st.session_state['_wings_auto_name']}")
                 st.rerun()
             except Exception as _e:
@@ -3161,13 +3267,14 @@ def main():
 
         # ── Prepare data splits ──────────────────────────────────────────────
         cols_table = ['Commission no.', 'Baumuster', 'Until Dealine', 'Changeability Date',
-                      'Production date', 'Model(WINGS)', 'Vehicle', 'Type', 'Cab', 'PTO', 'Model(SAM)', 'Only_in_SAM', 'Only_in_WINGS', 'Mandatory Codes', 'Exception Codes', 'Compared SAM file name']
+                      'Production date', 'Model(WINGS)', 'Vehicle', 'Type', 'Cab', 'PTO', 'Model(SAM)', 'Only_in_SAM', 'Only_in_WINGS', 'Mandatory Codes', 'Production Codes', 'Compared SAM file name']
         _hidden_cols = ['_all_wings_codes', '_all_sam_codes']
 
         # Sort by Production date (earlier months first), then by Until Dealine
         if 'Production date' in comp.columns:
             comp['_prod_date_sort'] = pd.to_datetime(comp['Production date'], errors='coerce')
-            comp = comp.sort_values(['_prod_date_sort', 'Commission no.'], ascending=[True, True])
+            comp['_change_date_sort'] = pd.to_datetime(comp['Changeability Date'], errors='coerce')
+            comp = comp.sort_values(['_prod_date_sort', '_change_date_sort'], ascending=[True, True])
 
         if 'Until Dealine' in comp.columns:
             comp['_UntilDealine_days'] = pd.to_numeric(comp['Until Dealine'], errors='coerce')
@@ -3194,6 +3301,7 @@ def main():
         _match = _total - _mismatch
         _vu_count = len(very_urgent)
 
+        st.markdown('<div class="section-card">', unsafe_allow_html=True)
         k1, k2, k3, k4 = st.columns(4)
         with k1:
             st.markdown(f'''<div class="kpi-card blue">
@@ -3215,8 +3323,7 @@ def main():
                 <p class="kpi-label">Urgent (≤ 2 wks)</p>
                 <p class="kpi-value">{_vu_count}</p>
             </div>''', unsafe_allow_html=True)
-
-        st.markdown('<br>', unsafe_allow_html=True)
+        st.markdown('</div>', unsafe_allow_html=True)
 
         # ── Tabbed results ───────────────────────────────────────────────────
         tab1, tab2, tab3 = st.tabs([
@@ -3244,7 +3351,7 @@ def main():
                         str(urow.get("Commission no.", "")),
                         str(urow.get("Only_in_SAM", "")),
                         str(urow.get("Only_in_WINGS", "")),
-                        str(urow.get("Exception Codes", "")),
+                        str(urow.get("Production Codes", "")),
                         str(urow.get("_all_wings_codes", "")),
                         str(urow.get("_all_sam_codes", "")),
                     )
@@ -3277,7 +3384,7 @@ def main():
                         str(urow.get("Commission no.", "")),
                         str(urow.get("Only_in_SAM", "")),
                         str(urow.get("Only_in_WINGS", "")),
-                        str(urow.get("Exception Codes", "")),
+                        str(urow.get("Production Codes", "")),
                         str(urow.get("_all_wings_codes", "")),
                         str(urow.get("_all_sam_codes", "")),
                     )
@@ -3309,7 +3416,7 @@ def main():
                     str(arow.get("Commission no.", "")),
                     str(arow.get("Only_in_SAM", "")),
                     str(arow.get("Only_in_WINGS", "")),
-                    str(arow.get("Exception Codes", "")),
+                    str(arow.get("Production Codes", "")),
                     str(arow.get("_all_wings_codes", "")),
                     str(arow.get("_all_sam_codes", "")),
                 )
