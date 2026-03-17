@@ -2874,6 +2874,10 @@ def main():
     }
 
     /* Dataframe column headers */
+    /* Make dataframe rows appear clickable */
+    [data-testid="stDataFrame"] div[role="gridcell"] {
+        cursor: pointer !important;
+    }
     [data-testid="stDataFrame"] div[role="columnheader"],
     [data-testid="stDataFrame"] div[role="columnheader"] *,
     [data-testid="stDataFrame"] div[role="row"]:first-child > div,
@@ -3408,7 +3412,7 @@ def main():
                 available = [c for c in cols_table if c in very_urgent.columns]
                 available_with_hidden = available + [c for c in _hidden_cols if c in very_urgent.columns]
                 very_urgent_display = very_urgent[available_with_hidden].reset_index(drop=True)
-                st.caption('Click a row to view option code details for the selected Commission.')
+                st.caption('Click any cell in a row to view option code details for the selected Commission.')
                 vu_event = st.dataframe(
                     very_urgent_display[available].style.apply(_style_deadline, axis=None),
                     on_select="rerun",
@@ -3440,7 +3444,7 @@ def main():
                 available = [c for c in cols_table if c in urgent.columns]
                 available_with_hidden = available + [c for c in _hidden_cols if c in urgent.columns]
                 urgent_display = urgent[available_with_hidden].reset_index(drop=True)
-                st.caption('Click a row to view option code details for the selected Commission.')
+                st.caption('Click any cell in a row to view option code details for the selected Commission.')
                 u_event = st.dataframe(
                     urgent_display[available].style.apply(_style_deadline, axis=None),
                     on_select="rerun",
@@ -3472,7 +3476,7 @@ def main():
             available_all = [c for c in cols_table if c in comp.columns]
             available_all_with_hidden = available_all + [c for c in _hidden_cols if c in comp.columns]
             all_display = comp[available_all_with_hidden].reset_index(drop=True)
-            st.caption('Click a row to view option code details for the selected Commission.')
+            st.caption('Click any cell in a row to view option code details for the selected Commission.')
             all_event = st.dataframe(
                 all_display[available_all].style.apply(_style_deadline, axis=None),
                 on_select="rerun",
