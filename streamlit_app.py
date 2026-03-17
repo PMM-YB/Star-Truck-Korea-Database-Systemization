@@ -3048,8 +3048,9 @@ def main():
     if not month_folders:
         month_folders = [sam_base]
 
-    @st.cache_data(show_spinner=False)
     _SAM_CACHE_VER = 'v2'  # bump to invalidate cache when alias logic changes
+
+    @st.cache_data(show_spinner=False)
     def _cached_sam_map(folder_str: str, mtime_key: str, _ver: str = _SAM_CACHE_VER) -> dict:
         _ = mtime_key
         return load_sam_from_folder(Path(folder_str))
