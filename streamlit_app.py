@@ -1898,36 +1898,68 @@ def show_code_details(commission_no: str, sam_str: str, wings_str: str, except_s
     wings_codes_raw = [c.strip() for c in str(wings_str).split(",") if c.strip() and c.strip() != "nan"]
     sam_codes = [c.replace('🔴', '').strip() for c in sam_codes_raw if c.replace('🔴', '').strip() not in _mand_set]
     wings_codes = [c.replace('🔴', '').strip() for c in wings_codes_raw if c.replace('🔴', '').strip() not in _mand_set]
-
-    col1, col2 = st.columns(2)
-
-    with col1:
-        st.markdown("#### Codes Only in SAM")
-        if sam_codes:
-            for code in sam_codes:
-                st.markdown(_render_code(code))
-        else:
-            st.info("None")
-
-    with col2:
-        st.markdown("#### Codes Only in WINGS")
-        if wings_codes:
-            for code in wings_codes:
-                st.markdown(_render_code(code))
-        else:
-            st.info("None")
-
     except_codes = [c.strip() for c in str(except_str).split(",") if c.strip() and c.strip() != "nan"]
-    if except_codes:
-        st.divider()
-        st.markdown("#### Production Codes (automatically created, just for reference)")
-        ecol1, ecol2 = st.columns(2)
-        for i, code in enumerate(except_codes):
-            desc = _lookup_code(code)
-            if i % 2 == 0:
-                ecol1.markdown(f"**`{code}`** &nbsp; {desc}")
+
+    # ── Two-view tabs: Difference vs Full code list ──
+    view_tab1, view_tab2 = st.tabs(["🔍 Difference Codes", "📋 Full Code List"])
+
+    with view_tab1:
+        col1, col2 = st.columns(2)
+        with col1:
+            st.markdown("#### Codes Only in SAM")
+            if sam_codes:
+                for code in sam_codes:
+                    st.markdown(_render_code(code))
             else:
-                ecol2.markdown(f"**`{code}`** &nbsp; {desc}")
+                st.info("None")
+        with col2:
+            st.markdown("#### Codes Only in WINGS")
+            if wings_codes:
+                for code in wings_codes:
+                    st.markdown(_render_code(code))
+            else:
+                st.info("None")
+
+        if except_codes:
+            st.divider()
+            st.markdown("#### Production Codes (automatically created, just for reference)")
+            ecol1, ecol2 = st.columns(2)
+            for i, code in enumerate(except_codes):
+                desc = _lookup_code(code)
+                if i % 2 == 0:
+                    ecol1.markdown(f"**`{code}`** &nbsp; {desc}")
+                else:
+                    ecol2.markdown(f"**`{code}`** &nbsp; {desc}")
+
+    with view_tab2:
+        _only_sam_set = set(sam_codes)
+        _only_wings_set = set(wings_codes)
+        _exc_set_view = set(except_codes)
+        all_sam_sorted = sorted(all_sam)
+        all_wings_sorted = sorted(all_wings)
+
+        fc1, fc2 = st.columns(2)
+        with fc1:
+            st.markdown(f"#### All SAM Codes ({len(all_sam_sorted)})")
+            for code in all_sam_sorted:
+                desc = _lookup_code(code)
+                if code in _only_sam_set:
+                    st.markdown(f"🔴 **`{code}`** &nbsp; {desc}")
+                elif code in _exc_set_view:
+                    st.markdown(f"🟡 **`{code}`** &nbsp; {desc}")
+                else:
+                    st.markdown(f"**`{code}`** &nbsp; {desc}")
+        with fc2:
+            st.markdown(f"#### All WINGS Codes ({len(all_wings_sorted)})")
+            for code in all_wings_sorted:
+                desc = _lookup_code(code)
+                if code in _only_wings_set:
+                    st.markdown(f"🔴 **`{code}`** &nbsp; {desc}")
+                elif code in _exc_set_view:
+                    st.markdown(f"🟡 **`{code}`** &nbsp; {desc}")
+                else:
+                    st.markdown(f"**`{code}`** &nbsp; {desc}")
+        st.caption("🔴 = Only in one side (mismatch) &nbsp;&nbsp; 🟡 = Production Code (reference only)")
 
     # ── Mandatory Codes section ───────────────────────────────────────────────
     st.divider()
@@ -2691,7 +2723,7 @@ def compare(df_wings: pd.DataFrame, sam_maps_by_month: dict) -> pd.DataFrame:
 
         sam_codes, sam_file = _get_sam_data(sam_entry, is_pto)
 
-        _exc_set = st.session_state.get('_except_codes_set', {c for c in OPTION_CODE_MAP if c and c[0] in {'I','O','Z','U'}})
+        _exc_set = st.session_state.get('_except_codes_set', {c for c in OPTION_CODE_MAP if c and c[0] in {'I','O','Z','U'}} | {'DUP0', 'A0B', 'E0D', 'E0Q', 'J7G'})
         _mand_set = st.session_state.get('_mand_codes_set', set(MANDATORY_CODES.keys()))
         # Exclude both exception codes AND mandatory codes from Only_in lists
         only_w = sorted(c for c in (wings_codes - sam_codes) if c and c not in _exc_set and c not in _mand_set) if sam_codes else []
@@ -3139,10 +3171,11 @@ def main():
 
     # ── Exception codes (dynamic, stored in session state) ───────────────────
     _EXCEPT_PREFIXES = ('I', 'O', 'Z', 'U')
+    _EXCEPT_EXTRA = {'DUP0', 'A0B', 'E0D', 'E0Q', 'J7G'}
     if '_except_codes_set' not in st.session_state:
         st.session_state['_except_codes_set'] = {
             code for code in OPTION_CODE_MAP if code and code[0] in _EXCEPT_PREFIXES
-        }
+        } | _EXCEPT_EXTRA
     if '_except_custom_desc' not in st.session_state:
         st.session_state['_except_custom_desc'] = {}
 
