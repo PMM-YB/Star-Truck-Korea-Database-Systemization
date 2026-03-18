@@ -3409,11 +3409,9 @@ def main():
 
         # ── KPI metric cards ─────────────────────────────────────────────────
         _total = len(comp)
-        # Mismatch = no SAM file found for the model (not just code differences)
-        _mismatch = len(comp[
-            comp.get('Compared SAM file name', pd.Series(dtype=str)).fillna('').str.strip() == ''
-        ]) if 'Compared SAM file name' in comp.columns else 0
-        _match = _total - _mismatch
+        # Match/Mismatch based on SAM Status column
+        _match = len(comp[comp['SAM Status'] == 'Match']) if 'SAM Status' in comp.columns else 0
+        _mismatch = _total - _match
         _vu_count = len(very_urgent)
 
         st.markdown('<div class="section-card">', unsafe_allow_html=True)
