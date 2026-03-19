@@ -17,52 +17,14 @@ import tempfile
 import subprocess
 import threading
 import concurrent.futures
-import ctypes
 from playwright.async_api import async_playwright
-
-
-def _force_show_chromium():
-    """Windows API로 Chromium 창을 찾아 강제로 앞으로 보여준다."""
-    try:
-        import ctypes
-        from ctypes import wintypes
-        user32 = ctypes.windll.user32
-        SW_SHOW = 5
-        SW_RESTORE = 9
-        SWP_NOMOVE = 0x0002
-        SWP_NOSIZE = 0x0001
-        HWND_TOPMOST = -1
-        HWND_NOTOPMOST = -2
-
-        EnumWindows = user32.EnumWindows
-        EnumWindowsProc = ctypes.WINFUNCTYPE(ctypes.c_bool, wintypes.HWND, wintypes.LPARAM)
-        GetWindowTextW = user32.GetWindowTextW
-        IsWindowVisible = user32.IsWindowVisible
-
-        found = []
-        def callback(hwnd, lParam):
-            title = ctypes.create_unicode_buffer(256)
-            GetWindowTextW(hwnd, title, 256)
-            t = title.value.lower()
-            if 'chromium' in t or 'playwright' in t or 'wings' in t or 'daimler' in t or 'business id' in t:
-                found.append(hwnd)
-            return True
-
-        EnumWindows(EnumWindowsProc(callback), 0)
-        for hwnd in found:
-            user32.ShowWindow(hwnd, SW_RESTORE)
-            user32.SetForegroundWindow(hwnd)
-            user32.SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE)
-            user32.SetWindowPos(hwnd, HWND_NOTOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE)
-    except Exception:
-        pass
 
 WINGS_URL = "https://wings.tsac.daimlertruck.com/sites/main.jsp"
 
 # 전용 Chrome 프로필 디렉터리 (사용자의 메인 Chrome과 충돌 방지)
 WINGS_PROFILE_DIR = os.path.join(
     os.environ.get("LOCALAPPDATA", os.path.expanduser("~")),
-    "WingsAutomation",
+    "Google", "Chrome", "User Data", "WingsAutomation",
 )
 
 # 자격 증명 파일 경로
@@ -229,33 +191,23 @@ async def _wings_download_async(months: list, download_dir: str, on_status=None,
     async with async_playwright() as p:
         launch_kwargs = dict(
             headless=False,
-            channel="chrome",
             accept_downloads=True,
             downloads_path=download_dir,
-            args=["--start-maximized", "--window-position=100,100", "--window-size=1280,800"],
+            args=["--start-maximized"],
             viewport=None,
         )
+        if chrome_exe:
+            launch_kwargs["executable_path"] = chrome_exe
 
         ctx = await p.chromium.launch_persistent_context(
             WINGS_PROFILE_DIR,
             **launch_kwargs,
         )
         page = ctx.pages[0] if ctx.pages else await ctx.new_page()
-        await page.bring_to_front()
-        try:
-            await page.evaluate("window.moveTo(100, 100); window.resizeTo(1280, 800); window.focus();")
-        except Exception:
-            pass
 
         # ── 1. WINGS 접속 ──────────────────────────────────────────────────────
         status("WINGS에 접속 중...")
         await page.goto(WINGS_URL, wait_until="networkidle", timeout=30000)
-        await page.bring_to_front()
-        _force_show_chromium()
-        try:
-            await page.evaluate("window.moveTo(100, 100); window.resizeTo(1280, 800); window.focus();")
-        except Exception:
-            pass
 
         # 로그인이 필요한 경우
         login_needed = False
@@ -383,8 +335,6 @@ async def _wings_download_async(months: list, download_dir: str, on_status=None,
                     status(f"비밀번호 입력 실패: {e}")
 
             # ── 2FA 및 로그인 완료 대기 루프 ──
-            await page.bring_to_front()
-            _force_show_chromium()
             auth_code_used = False
             mfa_method_selected = False
             for _ in range(360):  # 최대 3분 대기
@@ -399,7 +349,7 @@ async def _wings_download_async(months: list, download_dir: str, on_status=None,
                 if not mfa_method_selected:
                     try:
                         has_mfa_selection = await page.evaluate(
-                            """() => ((document.body && document.body.innerText) || '').includes('Multi Factor Authentication Method Selection')"""
+                            """() => (document.body.innerText || '').includes('Multi Factor Authentication Method Selection')"""
                         )
                         if has_mfa_selection:
                             # "Email" 텍스트 클릭 (라디오 라벨)
@@ -419,7 +369,7 @@ async def _wings_download_async(months: list, download_dir: str, on_status=None,
                     try:
                         has_email_mfa = await page.evaluate(
                             """() => {
-                                const text = (document.body && document.body.innerText) || '';
+                                const text = document.body.innerText || '';
                                 return text.includes('Multi Factor Authentication email Verification')
                                     || text.includes('Send verification code')
                                     || text.includes('Send new verification code');
@@ -548,7 +498,7 @@ async def _wings_download_async(months: list, download_dir: str, on_status=None,
                                 old_codes_list = await outlook_page.evaluate(
                                     """() => {
                                         const codes = [];
-                                        const allText = (document.body && document.body.innerText) || '';
+                                        const allText = document.body.innerText || '';
                                         const matches = allText.matchAll(/(\\d{6})\\s*-\\s*Your Daimler Truck Business ID MFA/g);
                                         for (const m of matches) codes.push(m[1]);
                                         return codes;
@@ -567,7 +517,7 @@ async def _wings_download_async(months: list, download_dir: str, on_status=None,
                                         """() => {
                                             const codes = [];
                                             // 이메일 목록에서 모든 6자리 코드 추출
-                                            const allText = (document.body && document.body.innerText) || '';
+                                            const allText = document.body.innerText || '';
                                             const matches = allText.matchAll(/(\\d{6})\\s*-\\s*Your Daimler Truck Business ID MFA/g);
                                             for (const m of matches) codes.push(m[1]);
                                             // aria-label에서도 추출
