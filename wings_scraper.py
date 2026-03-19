@@ -191,13 +191,12 @@ async def _wings_download_async(months: list, download_dir: str, on_status=None,
     async with async_playwright() as p:
         launch_kwargs = dict(
             headless=False,
+            channel="chrome",
             accept_downloads=True,
             downloads_path=download_dir,
-            args=["--start-maximized", "--window-position=100,100", "--window-size=1280,800"],
+            args=["--start-maximized", "--window-position=100,100", "--window-size=1280,800", "--new-window"],
             viewport=None,
         )
-        if chrome_exe:
-            launch_kwargs["executable_path"] = chrome_exe
 
         ctx = await p.chromium.launch_persistent_context(
             WINGS_PROFILE_DIR,
