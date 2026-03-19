@@ -17,7 +17,45 @@ import tempfile
 import subprocess
 import threading
 import concurrent.futures
+import ctypes
 from playwright.async_api import async_playwright
+
+
+def _force_show_chromium():
+    """Windows API로 Chromium 창을 찾아 강제로 앞으로 보여준다."""
+    try:
+        import ctypes
+        from ctypes import wintypes
+        user32 = ctypes.windll.user32
+        SW_SHOW = 5
+        SW_RESTORE = 9
+        SWP_NOMOVE = 0x0002
+        SWP_NOSIZE = 0x0001
+        HWND_TOPMOST = -1
+        HWND_NOTOPMOST = -2
+
+        EnumWindows = user32.EnumWindows
+        EnumWindowsProc = ctypes.WINFUNCTYPE(ctypes.c_bool, wintypes.HWND, wintypes.LPARAM)
+        GetWindowTextW = user32.GetWindowTextW
+        IsWindowVisible = user32.IsWindowVisible
+
+        found = []
+        def callback(hwnd, lParam):
+            title = ctypes.create_unicode_buffer(256)
+            GetWindowTextW(hwnd, title, 256)
+            t = title.value.lower()
+            if 'chromium' in t or 'playwright' in t or ('chrome' in t and 'wings' in t.lower()):
+                found.append(hwnd)
+            return True
+
+        EnumWindows(EnumWindowsProc(callback), 0)
+        for hwnd in found:
+            user32.ShowWindow(hwnd, SW_RESTORE)
+            user32.SetForegroundWindow(hwnd)
+            user32.SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE)
+            user32.SetWindowPos(hwnd, HWND_NOTOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE)
+    except Exception:
+        pass
 
 WINGS_URL = "https://wings.tsac.daimlertruck.com/sites/main.jsp"
 
@@ -191,10 +229,9 @@ async def _wings_download_async(months: list, download_dir: str, on_status=None,
     async with async_playwright() as p:
         launch_kwargs = dict(
             headless=False,
-            channel="chrome",
             accept_downloads=True,
             downloads_path=download_dir,
-            args=["--start-maximized", "--window-position=100,100", "--window-size=1280,800", "--new-window"],
+            args=["--start-maximized", "--window-position=100,100", "--window-size=1280,800"],
             viewport=None,
         )
 
@@ -213,6 +250,7 @@ async def _wings_download_async(months: list, download_dir: str, on_status=None,
         status("WINGS에 접속 중...")
         await page.goto(WINGS_URL, wait_until="networkidle", timeout=30000)
         await page.bring_to_front()
+        _force_show_chromium()
         try:
             await page.evaluate("window.moveTo(100, 100); window.resizeTo(1280, 800); window.focus();")
         except Exception:
@@ -345,6 +383,7 @@ async def _wings_download_async(months: list, download_dir: str, on_status=None,
 
             # ── 2FA 및 로그인 완료 대기 루프 ──
             await page.bring_to_front()
+            _force_show_chromium()
             auth_code_used = False
             mfa_method_selected = False
             for _ in range(360):  # 최대 3분 대기
