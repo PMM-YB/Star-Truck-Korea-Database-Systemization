@@ -44,7 +44,7 @@ def _force_show_chromium():
             title = ctypes.create_unicode_buffer(256)
             GetWindowTextW(hwnd, title, 256)
             t = title.value.lower()
-            if 'chromium' in t or 'playwright' in t or ('chrome' in t and 'wings' in t.lower()):
+            if 'chromium' in t or 'playwright' in t or 'wings' in t or 'daimler' in t or 'business id' in t:
                 found.append(hwnd)
             return True
 
@@ -229,6 +229,7 @@ async def _wings_download_async(months: list, download_dir: str, on_status=None,
     async with async_playwright() as p:
         launch_kwargs = dict(
             headless=False,
+            channel="chrome",
             accept_downloads=True,
             downloads_path=download_dir,
             args=["--start-maximized", "--window-position=100,100", "--window-size=1280,800"],
