@@ -319,7 +319,8 @@ async def _wings_download_async(months: list, download_dir: str, on_status=None,
                                 const btns = document.querySelectorAll('button, input[type="submit"]');
                                 for (const b of btns) {
                                     const txt = (b.textContent || b.value || '').trim().toLowerCase();
-                                    if (txt.includes('sign in') || txt.includes('log in') || txt.includes('continue') || txt.includes('submit')) {
+                                    if (txt.includes('sign in') || txt.includes('log in') || txt.includes('continue') || txt.includes('submit')
+                                        || txt === '로그인' || txt === '다음') {
                                         b.click();
                                         return;
                                     }
@@ -349,15 +350,22 @@ async def _wings_download_async(months: list, download_dir: str, on_status=None,
                 if not mfa_method_selected:
                     try:
                         has_mfa_selection = await page.evaluate(
-                            """() => (document.body.innerText || '').includes('Multi Factor Authentication Method Selection')"""
+                            """() => {
+                                const text = document.body.innerText || '';
+                                return text.includes('Multi Factor Authentication Method Selection')
+                                    || text.includes('다중 요소 인증 방법 선택')
+                                    || text.includes('MFA 방법');
+                            }"""
                         )
                         if has_mfa_selection:
-                            # "Email" 텍스트 클릭 (라디오 라벨)
-                            await page.get_by_text("Email", exact=True).click()
+                            # "이메일" 또는 "Email" 라디오 클릭
+                            _email_radio = page.get_by_text("이메일").or_(page.get_by_text("Email", exact=True))
+                            await _email_radio.first.click()
                             await page.wait_for_timeout(500)
-                            # Continue 버튼 클릭
-                            await page.get_by_role("button", name="Continue").click()
-                            status("MFA 방법 선택: Email → Continue 클릭, 이메일 인증 화면 대기 (3초)...")
+                            # "계속" 또는 "Continue" 버튼 클릭
+                            _continue_btn = page.get_by_role("button", name="계속").or_(page.get_by_role("button", name="Continue"))
+                            await _continue_btn.first.click()
+                            status("MFA 방법 선택: 이메일 → 계속 클릭, 인증 화면 대기 (3초)...")
                             mfa_method_selected = True
                             await page.wait_for_timeout(3000)
                             continue
@@ -372,20 +380,22 @@ async def _wings_download_async(months: list, download_dir: str, on_status=None,
                                 const text = document.body.innerText || '';
                                 return text.includes('Multi Factor Authentication email Verification')
                                     || text.includes('Send verification code')
-                                    || text.includes('Send new verification code');
+                                    || text.includes('Send new verification code')
+                                    || text.includes('다중 요소 인증 이메일 인증')
+                                    || text.includes('인증 코드 보내기');
                             }"""
                         )
                         if has_email_mfa:
-                            # "Send verification code" 버튼이 보일 때까지 대기 후 클릭
+                            # "Send verification code" / "인증 코드 보내기" 버튼 클릭
                             status("이메일 인증 코드 요청 중... (버튼 대기)")
-                            # aria-hidden 해제 대기 → JS로 직접 클릭
                             await page.wait_for_timeout(2000)
                             clicked = await page.evaluate(
                                 """() => {
                                     const btns = document.querySelectorAll('button');
                                     for (const b of btns) {
                                         const txt = (b.textContent || '').trim();
-                                        if (txt === 'Send verification code' || txt === 'Send new verification code') {
+                                        if (txt === 'Send verification code' || txt === 'Send new verification code'
+                                            || txt === '인증 코드 보내기' || txt === '새 인증 코드 보내기') {
                                             b.removeAttribute('aria-hidden');
                                             b.style.display = '';
                                             b.click();
@@ -443,39 +453,75 @@ async def _wings_download_async(months: list, download_dir: str, on_status=None,
                                     except Exception:
                                         pass
 
-                                    # 1단계: 이메일 입력 화면
-                                    email_input = outlook_page.locator('input[type="email"], input[name="loginfmt"]')
-                                    if await email_input.count() > 0 and await email_input.first.is_visible():
-                                        status("Outlook: 이메일 입력 중...")
-                                        await email_input.first.fill(email_addr)
+                                    # 1단계: 비밀번호 입력 화면 (이메일보다 먼저 체크!)
+                                    _pw_filled = await outlook_page.evaluate(
+                                        """(pwd) => {
+                                            const pw = document.querySelector('input[type="password"]:not([style*="display:none"]):not([hidden])');
+                                            if (pw && pw.offsetParent !== null) {
+                                                pw.focus();
+                                                pw.value = pwd;
+                                                pw.dispatchEvent(new Event('input', {bubbles: true}));
+                                                pw.dispatchEvent(new Event('change', {bubbles: true}));
+                                                return true;
+                                            }
+                                            return false;
+                                        }""", email_pw or ""
+                                    )
+                                    if _pw_filled:
+                                        status("Outlook: 비밀번호 입력 완료, 로그인 클릭...")
+                                        await outlook_page.wait_for_timeout(500)
+                                        await outlook_page.evaluate(
+                                            """() => {
+                                                const btns = document.querySelectorAll('button, input[type="submit"]');
+                                                for (const b of btns) {
+                                                    const txt = (b.textContent || b.value || '').trim().toLowerCase();
+                                                    if (txt.includes('sign in') || txt.includes('log in')
+                                                        || txt === '로그인' || txt === '다음') {
+                                                        b.click();
+                                                        return;
+                                                    }
+                                                }
+                                                const sub = document.querySelector('input[type="submit"], button[type="submit"]');
+                                                if (sub) sub.click();
+                                            }"""
+                                        )
+                                        await outlook_page.wait_for_timeout(3000)
+                                        continue
+
+                                    # 2단계: 이메일 입력 화면
+                                    _email_filled = await outlook_page.evaluate(
+                                        """(addr) => {
+                                            const el = document.querySelector('input[type="email"], input[name="loginfmt"]');
+                                            if (el && el.offsetParent !== null) {
+                                                el.focus();
+                                                el.value = addr;
+                                                el.dispatchEvent(new Event('input', {bubbles: true}));
+                                                el.dispatchEvent(new Event('change', {bubbles: true}));
+                                                return true;
+                                            }
+                                            return false;
+                                        }""", email_addr or ""
+                                    )
+                                    if _email_filled:
+                                        status("Outlook: 이메일 입력 완료, 다음 클릭...")
                                         await outlook_page.wait_for_timeout(300)
-                                        submit_btn = outlook_page.locator('input[type="submit"]')
-                                        if await submit_btn.count() > 0:
-                                            await submit_btn.click()
-                                        else:
-                                            await outlook_page.keyboard.press("Enter")
-                                        # Hyosung 비밀번호 화면 대기
+                                        await outlook_page.evaluate(
+                                            """() => {
+                                                const sub = document.querySelector('input[type="submit"]');
+                                                if (sub) { sub.click(); return; }
+                                                const btns = document.querySelectorAll('button');
+                                                for (const b of btns) {
+                                                    const txt = (b.textContent || '').trim().toLowerCase();
+                                                    if (txt === 'next' || txt === '다음') { b.click(); return; }
+                                                }
+                                            }"""
+                                        )
                                         try:
                                             await outlook_page.wait_for_selector(
-                                                'input[type="password"], input[name="passwd"], input[name="Password"]',
-                                                timeout=10000
+                                                'input[type="password"]', timeout=10000
                                             )
                                         except Exception:
                                             await outlook_page.wait_for_timeout(2000)
-                                        continue
-
-                                    # 2단계: 비밀번호 입력 화면 (Hyosung 페이지) — 빠르게!
-                                    pw_input = outlook_page.locator('input[type="password"], input[name="passwd"], input[name="Password"]')
-                                    if await pw_input.count() > 0 and await pw_input.first.is_visible():
-                                        status("Outlook: 비밀번호 입력 중 (빠르게)...")
-                                        await pw_input.first.fill(email_pw)
-                                        await outlook_page.wait_for_timeout(200)
-                                        sign_in_btn = outlook_page.locator('input[type="submit"], button[type="submit"]')
-                                        if await sign_in_btn.count() > 0:
-                                            await sign_in_btn.first.click()
-                                        else:
-                                            await outlook_page.keyboard.press("Enter")
-                                        await outlook_page.wait_for_timeout(3000)
                                         continue
 
                                     # 3단계: "Stay signed in?" / "로그인 상태 유지?" 화면
@@ -499,9 +545,16 @@ async def _wings_download_async(months: list, download_dir: str, on_status=None,
                                     """() => {
                                         const codes = [];
                                         const allText = document.body.innerText || '';
-                                        const matches = allText.matchAll(/(\\d{6})\\s*-\\s*Your Daimler Truck Business ID MFA/g);
-                                        for (const m of matches) codes.push(m[1]);
-                                        return codes;
+                                        // 영어: "123456 - Your Daimler Truck Business ID MFA"
+                                        const en = allText.matchAll(/(\\d{6})\\s*-\\s*Your Daimler Truck Business ID MFA/g);
+                                        for (const m of en) codes.push(m[1]);
+                                        // 한국어: "123456 - Daimler Truck 비즈니스 ID MFA" 등
+                                        const kr = allText.matchAll(/(\\d{6})\\s*-\\s*Daimler Truck/g);
+                                        for (const m of kr) codes.push(m[1]);
+                                        // 포괄적: MFA 근처의 6자리 숫자
+                                        const broad = allText.matchAll(/(\\d{6})\\s*[-–]\\s*[^\\n]*(?:MFA|인증|verification)/gi);
+                                        for (const m of broad) codes.push(m[1]);
+                                        return [...new Set(codes)];
                                     }"""
                                 )
                                 old_codes = set(old_codes_list or [])
@@ -516,15 +569,21 @@ async def _wings_download_async(months: list, download_dir: str, on_status=None,
                                     found_codes = await outlook_page.evaluate(
                                         """() => {
                                             const codes = [];
-                                            // 이메일 목록에서 모든 6자리 코드 추출
                                             const allText = document.body.innerText || '';
-                                            const matches = allText.matchAll(/(\\d{6})\\s*-\\s*Your Daimler Truck Business ID MFA/g);
-                                            for (const m of matches) codes.push(m[1]);
-                                            // aria-label에서도 추출
-                                            const subjects = document.querySelectorAll('[aria-label*="MFA Email Verification"], [title*="MFA Email Verification"]');
+                                            // 영어 패턴
+                                            const en = allText.matchAll(/(\\d{6})\\s*-\\s*Your Daimler Truck Business ID MFA/g);
+                                            for (const m of en) codes.push(m[1]);
+                                            // 한국어 패턴
+                                            const kr = allText.matchAll(/(\\d{6})\\s*-\\s*Daimler Truck/g);
+                                            for (const m of kr) codes.push(m[1]);
+                                            // 포괄적: MFA/인증/verification 근처 6자리
+                                            const broad = allText.matchAll(/(\\d{6})\\s*[-–]\\s*[^\\n]*(?:MFA|인증|verification)/gi);
+                                            for (const m of broad) codes.push(m[1]);
+                                            // aria-label / title 에서도 추출
+                                            const subjects = document.querySelectorAll('[aria-label*="MFA"], [aria-label*="인증"], [title*="MFA"], [title*="인증"], [aria-label*="Daimler"], [title*="Daimler"]');
                                             for (const el of subjects) {
                                                 const text = el.getAttribute('aria-label') || el.getAttribute('title') || el.textContent || '';
-                                                const match = text.match(/^(\\d{6})\\s*-/);
+                                                const match = text.match(/(\\d{6})/);
                                                 if (match) codes.push(match[1]);
                                             }
                                             return [...new Set(codes)];
@@ -538,6 +597,8 @@ async def _wings_download_async(months: list, download_dir: str, on_status=None,
                                         break
                                     elif found_codes:
                                         status(f"대기 중... 발견된 코드 {found_codes}는 이전 코드임 (attempt {attempt+1})")
+                                    else:
+                                        status(f"인증 이메일 대기 중... (attempt {attempt+1}/36)")
                                 except Exception as e:
                                     status(f"이메일 검색 오류: {e}")
 
@@ -555,12 +616,68 @@ async def _wings_download_async(months: list, download_dir: str, on_status=None,
                             if email_code and len(email_code) == 6:
                                 # WINGS 페이지로 돌아가서 코드 입력
                                 status(f"인증 코드 {email_code} 입력 중...")
-                                code_input = page.locator('input[placeholder="Verification Code"]')
-                                await code_input.click()
-                                await code_input.fill(email_code)
+                                await page.evaluate(
+                                    """(code) => {
+                                        // 인증 코드 전용 입력 필드 찾기 (이메일 필드 제외)
+                                        const allInputs = document.querySelectorAll('input');
+                                        for (const inp of allInputs) {
+                                            if (inp.offsetParent === null) continue;  // 숨겨진 필드 제외
+                                            const ph = (inp.placeholder || '').toLowerCase();
+                                            const id = (inp.id || '').toLowerCase();
+                                            const name = (inp.name || '').toLowerCase();
+                                            const type = (inp.type || '').toLowerCase();
+                                            // 이메일 필드 제외
+                                            if (type === 'email') continue;
+                                            if (ph.includes('email') || ph.includes('이메일')) continue;
+                                            if (id.includes('email') || name.includes('email')) continue;
+                                            // 인증 코드 필드 매칭: placeholder/id/name에 verification, code, 인증, 코드 등
+                                            if (ph.includes('verif') || ph.includes('code') || ph.includes('인증') || ph.includes('코드')
+                                                || id.includes('verif') || id.includes('code') || id.includes('otp')
+                                                || name.includes('verif') || name.includes('code') || name.includes('otp')) {
+                                                inp.focus();
+                                                inp.value = code;
+                                                inp.dispatchEvent(new Event('input', {bubbles: true}));
+                                                inp.dispatchEvent(new Event('change', {bubbles: true}));
+                                                return 'found_by_attr';
+                                            }
+                                        }
+                                        // 속성으로 못 찾으면: 이메일 필드가 아닌 마지막 visible text input 사용
+                                        const textInputs = [];
+                                        for (const inp of allInputs) {
+                                            if (inp.offsetParent === null) continue;
+                                            const type = (inp.type || '').toLowerCase();
+                                            if (type === 'email' || type === 'password' || type === 'hidden' || type === 'submit') continue;
+                                            const ph = (inp.placeholder || '').toLowerCase();
+                                            if (ph.includes('email') || ph.includes('이메일')) continue;
+                                            textInputs.push(inp);
+                                        }
+                                        // 마지막 text input이 인증코드 필드일 가능성 높음
+                                        if (textInputs.length > 1) {
+                                            const inp = textInputs[textInputs.length - 1];
+                                            inp.focus();
+                                            inp.value = code;
+                                            inp.dispatchEvent(new Event('input', {bubbles: true}));
+                                            inp.dispatchEvent(new Event('change', {bubbles: true}));
+                                            return 'found_last_input';
+                                        }
+                                        return 'not_found';
+                                    }""", email_code
+                                )
                                 await page.wait_for_timeout(500)
-                                # "Verify code" 버튼 클릭
-                                await page.get_by_role("button", name="Verify code").click()
+                                # "Verify code" / "코드 확인" 버튼 클릭
+                                await page.evaluate(
+                                    """() => {
+                                        const btns = document.querySelectorAll('button, input[type="submit"]');
+                                        for (const b of btns) {
+                                            const txt = (b.textContent || b.value || '').trim();
+                                            if (txt.includes('Verify') || txt.includes('확인')
+                                                || txt.includes('verify') || txt.includes('코드 확인')) {
+                                                b.click();
+                                                return;
+                                            }
+                                        }
+                                    }"""
+                                )
                                 status("이메일 인증 코드 제출 완료. 로그인 진행 중...")
                                 auth_code_used = True
                                 await page.wait_for_timeout(5000)
@@ -1115,27 +1232,27 @@ def _write_debug(row_idx: int, log: list):
 def download_wings_excel(months: list, download_dir: str = None, on_status=None, auth_code_callback=None) -> str:
     """
     WINGS에서 Excel 파일을 동기적으로 다운로드한다.
-
-    Parameters
-    ----------
-    months : list of str
-        'YYYY-MM' 형식의 생산월 리스트. 예: ['2026-04'] 또는 ['2026-04', '2026-05']
-    download_dir : str, optional
-        저장 디렉터리. None이면 임시 폴더 자동 생성.
-    on_status : callable, optional
-        진행 상황 콜백. on_status(str) 형태로 호출된다.
-
-    Returns
-    -------
-    str
-        다운로드된 파일의 절대 경로.
+    Streamlit 환경에서는 별도 프로세스(BAT → python)로 실행하여 Chrome 창이 표시되도록 한다.
     """
     if not download_dir:
         download_dir = tempfile.mkdtemp(prefix="wings_dl_")
 
-    # Streamlit의 asyncio 루프와 충돌을 막기 위해 별도 스레드에서 실행.
-    # Windows에서 subprocess 지원을 위해 ProactorEventLoop을 명시 생성.
-    # Streamlit UI 업데이트(on_status)를 위해 세션 컨텍스트를 스레드에 전달.
+    # Streamlit 환경 감지
+    _in_streamlit = False
+    try:
+        from streamlit.runtime.scriptrunner import get_script_run_ctx
+        _in_streamlit = get_script_run_ctx() is not None
+    except Exception:
+        pass
+
+    if _in_streamlit:
+        return _download_via_bat(months, download_dir, on_status)
+    else:
+        return _download_in_process(months, download_dir, on_status, auth_code_callback)
+
+
+def _download_in_process(months, download_dir, on_status, auth_code_callback):
+    """같은 프로세스 내에서 실행 (스케줄러 등 직접 호출용)."""
     _st_ctx = None
     if on_status is not None:
         try:
@@ -1161,4 +1278,128 @@ def download_wings_excel(months: list, download_dir: str = None, on_status=None,
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
         future = executor.submit(_run)
-        return future.result(timeout=300)  # 5분 타임아웃
+        return future.result(timeout=300)
+
+
+def _download_via_bat(months, download_dir, on_status):
+    """BAT → schtasks 별도 프로세스로 실행 (데스크탑 세션에서 Chrome 창 표시)."""
+    import json, time as _time
+
+    _project_dir = os.path.dirname(os.path.abspath(__file__))
+    # Session 0 ↔ 데스크탑 세션 간 경로 호환을 위해 프로젝트 폴더 아래에 다운로드
+    download_dir = os.path.join(_project_dir, "_wings_dl")
+    os.makedirs(download_dir, exist_ok=True)
+    _status_file = os.path.join(download_dir, "_status.txt")
+    _result_file = os.path.join(download_dir, "_result.json")
+    _debug_log = os.path.join(_project_dir, "_wings_bat_debug.log")
+
+    # 이전 실행 잔여 파일 정리
+    for _f in [_status_file, _result_file]:
+        try:
+            os.remove(_f)
+        except OSError:
+            pass
+
+    # 실행할 Python 스크립트 생성
+    _py_script = os.path.join(_project_dir, "_wings_run.py")
+    with open(_py_script, "w", encoding="utf-8") as f:
+        f.write(f"""import sys, json, os
+sys.path.insert(0, r"{_project_dir}")
+from wings_scraper import _download_in_process
+
+def on_status(msg):
+    print(msg)
+    with open(r"{_status_file}", "w", encoding="utf-8") as f:
+        f.write(msg)
+
+try:
+    path = _download_in_process({months!r}, r"{download_dir}", on_status, None)
+    with open(r"{_result_file}", "w", encoding="utf-8") as f:
+        json.dump({{"ok": True, "path": path}}, f)
+except Exception as e:
+    import traceback
+    with open(r"{_result_file}", "w", encoding="utf-8") as f:
+        json.dump({{"ok": False, "error": traceback.format_exc()}}, f)
+    print(f"ERROR: {{e}}")
+    input("Press Enter to close...")
+""")
+
+    # BAT 파일 생성
+    _bat_path = os.path.join(_project_dir, "_wings_run.bat")
+    with open(_bat_path, "w", encoding="utf-8") as f:
+        f.write(f'@echo on\n')
+        f.write(f'title WINGS Auto-Fetch\n')
+        f.write(f'echo Starting WINGS download...\n')
+        f.write(f'"{sys.executable}" "{_py_script}"\n')
+        f.write(f'echo.\n')
+        f.write(f'echo Done. This window will close in 10 seconds.\n')
+        f.write(f'timeout /t 10\n')
+
+    # schtasks /IT → 사용자 데스크탑 세션(interactive)에서 실행
+    # Session 0(서비스 세션)에서는 GUI 창이 안 뜨므로 반드시 /IT 필요
+    import random, time as _t
+    _task_name = f"WingsFetch_{random.randint(10000, 99999)}"
+
+    _create = subprocess.run(
+        ['schtasks', '/create', '/tn', _task_name,
+         '/tr', f'cmd /c "{_bat_path}"',
+         '/sc', 'once', '/st', '00:00',
+         '/f', '/IT'],
+        capture_output=True, text=True,
+    )
+    # 디버그 로그 파일에 기록 (Streamlit on_status는 덮어써지므로)
+    with open(_debug_log, "w", encoding="utf-8") as _dl:
+        _dl.write(f"task_name: {_task_name}\n")
+        _dl.write(f"bat_path: {_bat_path}\n")
+        _dl.write(f"create rc={_create.returncode}\n")
+        _dl.write(f"create stdout: {_create.stdout}\n")
+        _dl.write(f"create stderr: {_create.stderr}\n")
+
+    _run_result = subprocess.run(
+        ['schtasks', '/run', '/tn', _task_name],
+        capture_output=True, text=True,
+    )
+    with open(_debug_log, "a", encoding="utf-8") as _dl:
+        _dl.write(f"run rc={_run_result.returncode}\n")
+        _dl.write(f"run stdout: {_run_result.stdout}\n")
+        _dl.write(f"run stderr: {_run_result.stderr}\n")
+
+    if on_status:
+        on_status(f"Task: create={_create.returncode}, run={_run_result.returncode}")
+
+    if on_status:
+        on_status("별도 창에서 WINGS 다운로드 진행 중...")
+
+    # 결과 대기 (최대 5분)
+    _last = ""
+    for _ in range(300):
+        _time.sleep(1)
+        if on_status and os.path.exists(_status_file):
+            try:
+                with open(_status_file, "r", encoding="utf-8") as sf:
+                    _new = sf.read().strip()
+                if _new and _new != _last:
+                    _last = _new
+                    on_status(_new)
+            except Exception:
+                pass
+        if os.path.exists(_result_file):
+            try:
+                with open(_result_file, "r", encoding="utf-8") as rf:
+                    result = json.load(rf)
+            except Exception:
+                continue
+            # 정리
+            for _f in (_status_file, _result_file):
+                try:
+                    os.remove(_f)
+                except Exception:
+                    pass
+            subprocess.run(['schtasks', '/delete', '/tn', _task_name, '/f'], capture_output=True)
+            if result["ok"]:
+                return result["path"]
+            else:
+                raise RuntimeError(result["error"])
+
+    subprocess.run(['schtasks', '/delete', '/tn', _task_name, '/f'], capture_output=True)
+    raise RuntimeError("WINGS 다운로드 타임아웃 (5분 초과)")

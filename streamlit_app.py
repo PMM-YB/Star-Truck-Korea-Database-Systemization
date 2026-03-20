@@ -3214,38 +3214,39 @@ def main():
                 )]
                 st.success(f'{", ".join(_loaded_labels)} — {len(all_sam_file_paths)} files loaded')
 
-            for _mdir in _all_month_dirs:
-                _mfiles = sorted(
-                    p for p in _mdir.glob('*')
-                    if p.suffix.lower() in valid_exts and not p.name.startswith('.')
-                )
-                with st.expander(f'{_mdir.name}  ({len(_mfiles)} files)', expanded=False):
-                    # Upload button
-                    _uploaded = st.file_uploader(
-                        f'Add .docx to {_mdir.name}',
-                        type=['docx'],
-                        key=f'_sam_upload_{_mdir.name}',
-                        accept_multiple_files=True,
-                        label_visibility='collapsed',
+            with st.container(height=350):
+                for _mdir in _all_month_dirs:
+                    _mfiles = sorted(
+                        p for p in _mdir.glob('*')
+                        if p.suffix.lower() in valid_exts and not p.name.startswith('.')
                     )
-                    if _uploaded:
-                        for _uf in _uploaded:
-                            _save_path = _mdir / _uf.name
-                            _save_path.write_bytes(_uf.read())
-                        st.rerun()
-
-                    # List files with view-codes and delete buttons
-                    for _fp in _mfiles:
-                        _fc1, _fc2, _fc3 = st.columns([5, 1, 1])
-                        _fc1.caption(_fp.name)
-                        if _fc2.button('🔍', key=f'_sam_view_{_mdir.name}_{_fp.name}', help='View codes'):
-                            st.session_state['_sam_view_file'] = str(_fp)
-                            show_sam_file_codes()
-                        if _fc3.button('✕', key=f'_sam_del_{_mdir.name}_{_fp.name}'):
-                            _fp.unlink()
+                    with st.expander(f'{_mdir.name}  ({len(_mfiles)} files)', expanded=False):
+                        # Upload button
+                        _uploaded = st.file_uploader(
+                            f'Add .docx to {_mdir.name}',
+                            type=['docx'],
+                            key=f'_sam_upload_{_mdir.name}',
+                            accept_multiple_files=True,
+                            label_visibility='collapsed',
+                        )
+                        if _uploaded:
+                            for _uf in _uploaded:
+                                _save_path = _mdir / _uf.name
+                                _save_path.write_bytes(_uf.read())
                             st.rerun()
-                    if not _mfiles:
-                        st.caption('No files')
+
+                        # List files with view-codes and delete buttons
+                        for _fp in _mfiles:
+                            _fc1, _fc2, _fc3 = st.columns([5, 1, 1])
+                            _fc1.caption(_fp.name)
+                            if _fc2.button('🔍', key=f'_sam_view_{_mdir.name}_{_fp.name}', help='View codes'):
+                                st.session_state['_sam_view_file'] = str(_fp)
+                                show_sam_file_codes()
+                            if _fc3.button('✕', key=f'_sam_del_{_mdir.name}_{_fp.name}'):
+                                _fp.unlink()
+                                st.rerun()
+                        if not _mfiles:
+                            st.caption('No files')
 
             if not any(sam_maps_by_month.values()):
                 st.warning('No SAM .docx files found.')
@@ -3318,6 +3319,29 @@ def main():
                 st.session_state.pop('_wings_auto_bytes', None)
                 st.session_state.pop('_wings_auto_name', None)
                 st.rerun()
+
+    # ── 이전 다운로드 결과 자동 복구 (Streamlit 재시작 시) ────────────────
+    if not st.session_state.get('_wings_auto_bytes'):
+        _prev_result = os.path.join(os.path.dirname(os.path.abspath(__file__)), '_wings_dl', '_result.json')
+        if os.path.exists(_prev_result):
+            try:
+                import json as _json_mod
+                with open(_prev_result, 'r', encoding='utf-8') as _rf:
+                    _prev = _json_mod.load(_rf)
+                if _prev.get('ok') and _prev.get('path') and os.path.exists(_prev['path']):
+                    with open(_prev['path'], 'rb') as _f:
+                        st.session_state['_wings_auto_bytes'] = _f.read()
+                    st.session_state['_wings_auto_name'] = os.path.basename(_prev['path'])
+                    st.session_state['_auto_fetch_done'] = True
+                    # 결과 파일 정리
+                    os.remove(_prev_result)
+                    _prev_status = os.path.join(os.path.dirname(_prev_result), '_status.txt')
+                    if os.path.exists(_prev_status):
+                        os.remove(_prev_status)
+                    st.success(f"이전 다운로드 자동 로드: {st.session_state['_wings_auto_name']}")
+                    st.rerun()
+            except Exception:
+                pass
 
     # ── Handle Auto-fetch (button OR auto_fetch query param) ────────────────
     _auto_trigger = st.session_state.pop('_auto_fetch_trigger', False)
