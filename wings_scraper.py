@@ -409,11 +409,19 @@ async def _wings_download_async(months: list, download_dir: str, on_status=None,
                             await page.wait_for_timeout(3000)
                             status("인증 이메일 발송됨. Outlook Web에서 코드 읽는 중 (최대 3분 대기)...")
 
-                            # Outlook Web 새 탭 열기
+                            # Outlook Web 새 탭 열기 (502/503 에러 시 재시도)
                             outlook_page = await ctx.new_page()
-                            await outlook_page.goto("https://outlook.office.com/mail/")
-                            await outlook_page.wait_for_load_state("domcontentloaded")
-                            await outlook_page.wait_for_timeout(3000)
+                            for _ol_retry in range(3):
+                                await outlook_page.goto("https://outlook.office.com/mail/")
+                                await outlook_page.wait_for_load_state("domcontentloaded")
+                                await outlook_page.wait_for_timeout(3000)
+                                _page_text = await outlook_page.evaluate("() => document.body.innerText || ''")
+                                if 'Bad Gateway' in _page_text or '502' in (await outlook_page.title() or '') or '503' in _page_text:
+                                    status(f"Outlook 접속 오류 (502/503). 재시도 {_ol_retry+2}/3...")
+                                    await outlook_page.wait_for_timeout(5000)
+                                    await outlook_page.reload()
+                                    continue
+                                break
 
                             # Outlook 로그인 처리 (Microsoft → Hyosung 리다이렉트 플로우)
                             email_addr, email_pw = _load_credentials()
