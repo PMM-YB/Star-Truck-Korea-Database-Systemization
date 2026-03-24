@@ -1941,25 +1941,29 @@ def show_code_details(commission_no: str, sam_str: str, wings_str: str, except_s
         fc1, fc2 = st.columns(2)
         with fc1:
             st.markdown(f"#### All SAM Codes ({len(all_sam_sorted)})")
+            _sam_lines = []
             for code in all_sam_sorted:
                 desc = _lookup_code(code)
                 if code in _only_sam_set:
-                    st.markdown(f":red[**`{code}`**] &nbsp; {desc}")
+                    _sam_lines.append(f'<b style="color:#e74c3c">{code}</b> &nbsp; {desc}')
                 elif code in _exc_set_view:
-                    st.markdown(f":orange[**`{code}`**] &nbsp; {desc}")
+                    _sam_lines.append(f'<b style="color:#e67e22">{code}</b> &nbsp; {desc}')
                 else:
-                    st.markdown(f"**`{code}`** &nbsp; {desc}")
+                    _sam_lines.append(f'<b>{code}</b> &nbsp; {desc}')
+            st.markdown('<br>'.join(_sam_lines), unsafe_allow_html=True)
         with fc2:
             st.markdown(f"#### All WINGS Codes ({len(all_wings_sorted)})")
+            _wings_lines = []
             for code in all_wings_sorted:
                 desc = _lookup_code(code)
                 if code in _only_wings_set:
-                    st.markdown(f":red[**`{code}`**] &nbsp; {desc}")
+                    _wings_lines.append(f'<b style="color:#e74c3c">{code}</b> &nbsp; {desc}')
                 elif code in _exc_set_view:
-                    st.markdown(f":orange[**`{code}`**] &nbsp; {desc}")
+                    _wings_lines.append(f'<b style="color:#e67e22">{code}</b> &nbsp; {desc}')
                 else:
-                    st.markdown(f"**`{code}`** &nbsp; {desc}")
-        st.caption(":red[RED] = Only in one side (mismatch) &nbsp;&nbsp; :orange[ORANGE] = Production Code (reference only)")
+                    _wings_lines.append(f'<b>{code}</b> &nbsp; {desc}')
+            st.markdown('<br>'.join(_wings_lines), unsafe_allow_html=True)
+        st.caption('RED = Only in one side (mismatch),  ORANGE = Production Code (reference only)')
 
     # ── Mandatory Codes section ───────────────────────────────────────────────
     st.divider()
