@@ -2795,7 +2795,7 @@ def compare(df_wings: pd.DataFrame, sam_maps_by_month: dict) -> pd.DataFrame:
             '_all_wings_codes': ','.join(sorted(wings_codes)),
             '_all_sam_codes': ','.join(sorted(sam_codes)),
             'Compared SAM file name': sam_file,
-            'SAM Status': 'Mismatch' if (only_s or only_w) else 'Match',
+            'SAM Status': 'Match' if sam_file else 'Mismatch',
         }
         
         # compute days until deadline (Vehicle alterable until)
