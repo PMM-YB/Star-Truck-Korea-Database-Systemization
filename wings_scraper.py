@@ -538,71 +538,49 @@ async def _wings_download_async(months: list, download_dir: str, on_status=None,
                             await outlook_page.wait_for_timeout(3000)
                             status("Outlook Web 로드 완료. 인증 이메일 검색 중...")
 
-                            # 먼저 기존 이메일의 코드를 수집 (이전 코드 무시용)
-                            old_codes = set()
+                            # 현재 최신(첫 번째) MFA 이메일의 코드를 기록
+                            _get_first_mfa_code_js = """() => {
+                                // 방법1: aria-label에서 첫 번째 Daimler MFA 이메일 찾기
+                                const items = document.querySelectorAll('[aria-label*="Daimler"], [aria-label*="MFA"], [aria-label*="인증"]');
+                                for (const el of items) {
+                                    const text = el.getAttribute('aria-label') || el.textContent || '';
+                                    const m = text.match(/(\\d{6})/);
+                                    if (m) return m[1];
+                                }
+                                // 방법2: innerText에서 첫 번째 매칭 (최신순 정렬이므로 첫 번째 = 최신)
+                                const allText = document.body.innerText || '';
+                                let m = allText.match(/(\\d{6})\\s*-\\s*(?:Your )?Daimler Truck/);
+                                if (m) return m[1];
+                                m = allText.match(/(\\d{6})\\s*[-–]\\s*[^\\n]*(?:MFA|인증|verification)/i);
+                                if (m) return m[1];
+                                return null;
+                            }"""
+
+                            old_first_code = None
                             try:
-                                old_codes_list = await outlook_page.evaluate(
-                                    """() => {
-                                        const codes = [];
-                                        const allText = document.body.innerText || '';
-                                        // 영어: "123456 - Your Daimler Truck Business ID MFA"
-                                        const en = allText.matchAll(/(\\d{6})\\s*-\\s*Your Daimler Truck Business ID MFA/g);
-                                        for (const m of en) codes.push(m[1]);
-                                        // 한국어: "123456 - Daimler Truck 비즈니스 ID MFA" 등
-                                        const kr = allText.matchAll(/(\\d{6})\\s*-\\s*Daimler Truck/g);
-                                        for (const m of kr) codes.push(m[1]);
-                                        // 포괄적: MFA 근처의 6자리 숫자
-                                        const broad = allText.matchAll(/(\\d{6})\\s*[-–]\\s*[^\\n]*(?:MFA|인증|verification)/gi);
-                                        for (const m of broad) codes.push(m[1]);
-                                        return [...new Set(codes)];
-                                    }"""
-                                )
-                                old_codes = set(old_codes_list or [])
-                                status(f"기존 인증 코드 {len(old_codes)}개 무시: {old_codes}")
+                                old_first_code = await outlook_page.evaluate(_get_first_mfa_code_js)
+                                status(f"현재 최신 MFA 코드: {old_first_code} (새 메일 대기 중...)")
                             except Exception:
                                 pass
 
-                            # 이메일에서 새 인증 코드 추출 (최대 3분 대기)
+                            # 새 MFA 이메일 도착 감지 (최대 3분 대기)
                             email_code = None
                             for attempt in range(36):  # 36 * 5초 = 3분
                                 try:
-                                    found_codes = await outlook_page.evaluate(
-                                        """() => {
-                                            const codes = [];
-                                            const allText = document.body.innerText || '';
-                                            // 영어 패턴
-                                            const en = allText.matchAll(/(\\d{6})\\s*-\\s*Your Daimler Truck Business ID MFA/g);
-                                            for (const m of en) codes.push(m[1]);
-                                            // 한국어 패턴
-                                            const kr = allText.matchAll(/(\\d{6})\\s*-\\s*Daimler Truck/g);
-                                            for (const m of kr) codes.push(m[1]);
-                                            // 포괄적: MFA/인증/verification 근처 6자리
-                                            const broad = allText.matchAll(/(\\d{6})\\s*[-–]\\s*[^\\n]*(?:MFA|인증|verification)/gi);
-                                            for (const m of broad) codes.push(m[1]);
-                                            // aria-label / title 에서도 추출
-                                            const subjects = document.querySelectorAll('[aria-label*="MFA"], [aria-label*="인증"], [title*="MFA"], [title*="인증"], [aria-label*="Daimler"], [title*="Daimler"]');
-                                            for (const el of subjects) {
-                                                const text = el.getAttribute('aria-label') || el.getAttribute('title') || el.textContent || '';
-                                                const match = text.match(/(\\d{6})/);
-                                                if (match) codes.push(match[1]);
-                                            }
-                                            return [...new Set(codes)];
-                                        }"""
-                                    )
-                                    # 기존 코드 제외하고 새 코드만 사용
-                                    new_codes = [c for c in (found_codes or []) if c not in old_codes]
-                                    if new_codes:
-                                        email_code = new_codes[0]
-                                        status(f"새 인증 코드 발견: {email_code} (기존 제외: {old_codes})")
+                                    current_first = await outlook_page.evaluate(_get_first_mfa_code_js)
+                                    if current_first and current_first != old_first_code:
+                                        # 최신 이메일이 바뀜 → 새 인증 코드!
+                                        email_code = current_first
+                                        status(f"새 인증 코드 감지! {email_code} (이전: {old_first_code})")
                                         break
-                                    elif found_codes:
-                                        status(f"대기 중... 발견된 코드 {found_codes}는 이전 코드임 (attempt {attempt+1})")
+                                    elif current_first:
+                                        status(f"새 메일 대기 중... 현재 최신: {current_first} (attempt {attempt+1}/36)")
                                     else:
-                                        status(f"인증 이메일 대기 중... (attempt {attempt+1}/36)")
+                                        status(f"MFA 이메일 대기 중... (attempt {attempt+1}/36)")
                                 except Exception as e:
                                     status(f"이메일 검색 오류: {e}")
 
-                                # 새로고침하고 다시 시도
+                                # 주기적으로 새로고침
                                 if attempt % 3 == 2:
                                     status(f"Outlook 새로고침 중... (attempt {attempt+1})")
                                     await outlook_page.reload()
