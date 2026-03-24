@@ -1936,13 +1936,18 @@ def show_code_details(commission_no: str, sam_str: str, wings_str: str, except_s
         _only_wings_set = set(wings_codes)
         _exc_set_view = set(except_codes)
 
+        # Production Code 판별: exception 목록 OR 첫 글자가 I/O/Z/U
+        _PROD_PREFIXES = ('I', 'O', 'Z', 'U')
+        def _is_prod(c):
+            return c in _exc_set_view or (c and c[0] in _PROD_PREFIXES)
+
         # 코드 분류: 일반 코드 vs Production Codes, 각각 불일치/일치 분리
-        _common_normal = sorted(c for c in (all_sam & all_wings) if c not in _exc_set_view and c not in _mand_set)
-        _only_sam_normal = sorted(c for c in _only_sam_set if c not in _exc_set_view)
-        _only_wings_normal = sorted(c for c in _only_wings_set if c not in _exc_set_view)
-        _common_prod = sorted(c for c in (all_sam & all_wings) if c in _exc_set_view)
-        _only_sam_prod = sorted(c for c in _only_sam_set if c in _exc_set_view)
-        _only_wings_prod = sorted(c for c in _only_wings_set if c in _exc_set_view)
+        _common_normal = sorted(c for c in (all_sam & all_wings) if not _is_prod(c) and c not in _mand_set)
+        _only_sam_normal = sorted(c for c in _only_sam_set if not _is_prod(c))
+        _only_wings_normal = sorted(c for c in _only_wings_set if not _is_prod(c))
+        _common_prod = sorted(c for c in (all_sam & all_wings) if _is_prod(c) and c not in _mand_set)
+        _only_sam_prod = sorted(c for c in _only_sam_set if _is_prod(c))
+        _only_wings_prod = sorted(c for c in _only_wings_set if _is_prod(c))
 
         _section_css = '''<style>
             .code-section { padding: 10px 14px; border-radius: 8px; margin-bottom: 8px; }
@@ -1969,7 +1974,7 @@ def show_code_details(commission_no: str, sam_str: str, wings_str: str, except_s
             """코드 뒤에 Mandatory / Production 뱃지 추가"""
             if code in _mand_set:
                 return '<span class="badge mandatory">Mandatory</span>'
-            if code in _exc_set_view:
+            if _is_prod(code):
                 return '<span class="badge production">Production</span>'
             return ''
 
