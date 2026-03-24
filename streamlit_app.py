@@ -2619,21 +2619,22 @@ def compare(df_wings: pd.DataFrame, sam_maps_by_month: dict) -> pd.DataFrame:
     sorted_yyyymm = sorted(sam_maps_by_month.keys())
 
     def _get_sam_maps_for_prod_date(prod_date_raw) -> list:
-        """Return SAM maps ordered by priority (most recent month <= production month first).
-        Falls back to older months so partial SAM folders don't cause missing matches."""
-        result = []
+        """Return SAM maps ordered by priority: closest month to production date first.
+        Includes both past and future months so SAM files dated after production still match."""
+        if not sorted_yyyymm:
+            return []
         if prod_date_raw:
             try:
                 prod_dt = pd.to_datetime(str(prod_date_raw), errors='coerce')
                 if not pd.isna(prod_dt):
                     prod_yyyymm = prod_dt.year * 100 + prod_dt.month
-                    for yyyymm in reversed(sorted_yyyymm):
-                        if yyyymm <= prod_yyyymm:
-                            result.append(sam_maps_by_month[yyyymm])
-                    return result if result else [sam_maps_by_month[sorted_yyyymm[-1]]]
+                    # Sort all available months by distance from production date (closest first)
+                    by_distance = sorted(sorted_yyyymm, key=lambda ym: abs(ym - prod_yyyymm))
+                    return [sam_maps_by_month[ym] for ym in by_distance]
             except Exception:
                 pass
-        return [sam_maps_by_month[sorted_yyyymm[-1]]] if sorted_yyyymm else []
+        # Fallback: return all maps, most recent first
+        return [sam_maps_by_month[ym] for ym in reversed(sorted_yyyymm)]
 
     rows = []
     for _, r in df_wings.iterrows():
