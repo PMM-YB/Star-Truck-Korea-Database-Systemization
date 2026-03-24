@@ -1959,8 +1959,19 @@ def show_code_details(commission_no: str, sam_str: str, wings_str: str, except_s
             .code-tag.orange { color: #d97706; background: #fef3c7; }
             .code-tag.purple { color: #7c3aed; background: #ede9fe; }
             .code-desc { color: #555; font-size: 12px; }
+            .badge { font-size: 9px; padding: 1px 5px; border-radius: 3px; font-weight: bold; vertical-align: middle; margin-left: 4px; }
+            .badge.mandatory { color: #fff; background: #e74c3c; }
+            .badge.production { color: #fff; background: #f59e0b; }
         </style>'''
         st.markdown(_section_css, unsafe_allow_html=True)
+
+        def _badge(code):
+            """코드 뒤에 Mandatory / Production 뱃지 추가"""
+            if code in _mand_set:
+                return '<span class="badge mandatory">Mandatory</span>'
+            if code in _exc_set_view:
+                return '<span class="badge production">Production</span>'
+            return ''
 
         # ── 섹션 1: 불일치 코드 (빨간색, 가장 중요) ──
         if _only_sam_normal or _only_wings_normal:
@@ -1974,10 +1985,10 @@ def show_code_details(commission_no: str, sam_str: str, wings_str: str, except_s
                 _right = ''
                 if i < len(_only_sam_normal):
                     c = _only_sam_normal[i]
-                    _left = f'<span class="code-tag red">{c}</span> <span class="code-desc">{_lookup_code(c)}</span>'
+                    _left = f'<span class="code-tag red">{c}</span>{_badge(c)} <span class="code-desc">{_lookup_code(c)}</span>'
                 if i < len(_only_wings_normal):
                     c = _only_wings_normal[i]
-                    _right = f'<span class="code-tag red">{c}</span> <span class="code-desc">{_lookup_code(c)}</span>'
+                    _right = f'<span class="code-tag red">{c}</span>{_badge(c)} <span class="code-desc">{_lookup_code(c)}</span>'
                 _mis_html += f'<div class="code-row"><div class="code-left">{_left}</div><div class="code-right">{_right}</div></div>'
             _mis_html += '</div>'
             st.markdown(_mis_html, unsafe_allow_html=True)
@@ -1989,7 +2000,8 @@ def show_code_details(commission_no: str, sam_str: str, wings_str: str, except_s
             _match_html += '<div class="code-row"><div class="code-left"><b>SAM</b></div><div class="code-right"><b>WINGS</b></div></div>'
             for c in _common_normal:
                 desc = _lookup_code(c)
-                _match_html += f'<div class="code-row"><div class="code-left"><span class="code-tag green">{c}</span> <span class="code-desc">{desc}</span></div><div class="code-right"><span class="code-tag green">{c}</span> <span class="code-desc">{desc}</span></div></div>'
+                b = _badge(c)
+                _match_html += f'<div class="code-row"><div class="code-left"><span class="code-tag green">{c}</span>{b} <span class="code-desc">{desc}</span></div><div class="code-right"><span class="code-tag green">{c}</span>{b} <span class="code-desc">{desc}</span></div></div>'
             _match_html += '</div>'
             st.markdown(_match_html, unsafe_allow_html=True)
 
@@ -2005,10 +2017,10 @@ def show_code_details(commission_no: str, sam_str: str, wings_str: str, except_s
                 _right = ''
                 if i < len(_only_sam_prod):
                     c = _only_sam_prod[i]
-                    _left = f'<span class="code-tag orange">{c}</span> <span class="code-desc">{_lookup_code(c)}</span>'
+                    _left = f'<span class="code-tag orange">{c}</span>{_badge(c)} <span class="code-desc">{_lookup_code(c)}</span>'
                 if i < len(_only_wings_prod):
                     c = _only_wings_prod[i]
-                    _right = f'<span class="code-tag orange">{c}</span> <span class="code-desc">{_lookup_code(c)}</span>'
+                    _right = f'<span class="code-tag orange">{c}</span>{_badge(c)} <span class="code-desc">{_lookup_code(c)}</span>'
                 _pmis_html += f'<div class="code-row"><div class="code-left">{_left}</div><div class="code-right">{_right}</div></div>'
             _pmis_html += '</div>'
             st.markdown(_pmis_html, unsafe_allow_html=True)
@@ -2020,7 +2032,8 @@ def show_code_details(commission_no: str, sam_str: str, wings_str: str, except_s
             _pmatch_html += '<div class="code-row"><div class="code-left"><b>SAM</b></div><div class="code-right"><b>WINGS</b></div></div>'
             for c in _common_prod:
                 desc = _lookup_code(c)
-                _pmatch_html += f'<div class="code-row"><div class="code-left"><span class="code-tag purple">{c}</span> <span class="code-desc">{desc}</span></div><div class="code-right"><span class="code-tag purple">{c}</span> <span class="code-desc">{desc}</span></div></div>'
+                b = _badge(c)
+                _pmatch_html += f'<div class="code-row"><div class="code-left"><span class="code-tag purple">{c}</span>{b} <span class="code-desc">{desc}</span></div><div class="code-right"><span class="code-tag purple">{c}</span>{b} <span class="code-desc">{desc}</span></div></div>'
             _pmatch_html += '</div>'
             st.markdown(_pmatch_html, unsafe_allow_html=True)
 
