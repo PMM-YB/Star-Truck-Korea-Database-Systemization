@@ -1923,13 +1923,33 @@ def show_code_details(commission_no: str, sam_str: str, wings_str: str, except_s
         if except_codes:
             st.divider()
             st.markdown("#### Production Codes (automatically created, just for reference)")
+            _exc_in_sam = [c for c in except_codes if c in all_sam and c not in all_wings]
+            _exc_in_wings = [c for c in except_codes if c in all_wings and c not in all_sam]
+            _exc_in_both = [c for c in except_codes if c in all_sam and c in all_wings]
             ecol1, ecol2 = st.columns(2)
-            for i, code in enumerate(except_codes):
-                desc = _lookup_code(code)
-                if i % 2 == 0:
-                    ecol1.markdown(f"**`{code}`** &nbsp; {desc}")
+            with ecol1:
+                st.markdown("**Only in SAM**")
+                if _exc_in_sam:
+                    for code in _exc_in_sam:
+                        st.markdown(f"**`{code}`** &nbsp; {_lookup_code(code)}")
                 else:
-                    ecol2.markdown(f"**`{code}`** &nbsp; {desc}")
+                    st.caption("None")
+            with ecol2:
+                st.markdown("**Only in WINGS**")
+                if _exc_in_wings:
+                    for code in _exc_in_wings:
+                        st.markdown(f"**`{code}`** &nbsp; {_lookup_code(code)}")
+                else:
+                    st.caption("None")
+            if _exc_in_both:
+                st.markdown("**Matching**")
+                _bc1, _bc2 = st.columns(2)
+                for i, code in enumerate(_exc_in_both):
+                    desc = _lookup_code(code)
+                    if i % 2 == 0:
+                        _bc1.markdown(f"**`{code}`** &nbsp; {desc}")
+                    else:
+                        _bc2.markdown(f"**`{code}`** &nbsp; {desc}")
 
     with view_tab2:
         _only_sam_set = set(sam_codes)
