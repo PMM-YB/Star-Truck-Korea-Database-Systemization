@@ -1944,9 +1944,9 @@ def show_code_details(commission_no: str, sam_str: str, wings_str: str, except_s
             for code in all_sam_sorted:
                 desc = _lookup_code(code)
                 if code in _only_sam_set:
-                    st.markdown(f'<span style="color:#e74c3c;font-weight:bold"><code>{code}</code></span> &nbsp; {desc}', unsafe_allow_html=True)
+                    st.markdown(f":red[**`{code}`**] &nbsp; {desc}")
                 elif code in _exc_set_view:
-                    st.markdown(f'<span style="color:#f39c12;font-weight:bold"><code>{code}</code></span> &nbsp; {desc}', unsafe_allow_html=True)
+                    st.markdown(f":orange[**`{code}`**] &nbsp; {desc}")
                 else:
                     st.markdown(f"**`{code}`** &nbsp; {desc}")
         with fc2:
@@ -1954,12 +1954,12 @@ def show_code_details(commission_no: str, sam_str: str, wings_str: str, except_s
             for code in all_wings_sorted:
                 desc = _lookup_code(code)
                 if code in _only_wings_set:
-                    st.markdown(f'<span style="color:#e74c3c;font-weight:bold"><code>{code}</code></span> &nbsp; {desc}', unsafe_allow_html=True)
+                    st.markdown(f":red[**`{code}`**] &nbsp; {desc}")
                 elif code in _exc_set_view:
-                    st.markdown(f'<span style="color:#f39c12;font-weight:bold"><code>{code}</code></span> &nbsp; {desc}', unsafe_allow_html=True)
+                    st.markdown(f":orange[**`{code}`**] &nbsp; {desc}")
                 else:
                     st.markdown(f"**`{code}`** &nbsp; {desc}")
-        st.caption('<span style="color:#e74c3c;font-weight:bold">RED</span> = Only in one side (mismatch) &nbsp;&nbsp; <span style="color:#f39c12;font-weight:bold">YELLOW</span> = Production Code (reference only)', unsafe_allow_html=True)
+        st.caption(":red[RED] = Only in one side (mismatch) &nbsp;&nbsp; :orange[ORANGE] = Production Code (reference only)")
 
     # ── Mandatory Codes section ───────────────────────────────────────────────
     st.divider()
