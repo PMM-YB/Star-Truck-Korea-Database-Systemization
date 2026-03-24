@@ -1575,7 +1575,7 @@ OPTION_CODE_MAP = {
     "H8X": "Multi-battery carrier, batteries side by side",
     "H8Y": "Full mudguards, for fully integrated tipper",
     "H8Z": "Splash guard, front",
-    # I — vehicle classification / production codes
+    # I — vehicle classification / factory control codes
     "I4D": "Wheel arrangement 6x2, trailing axle, twin tyres",
     "I4L": "Wheel arrangement 8x4/4",
     "I5F": "26.0-tonner",
@@ -1922,7 +1922,7 @@ def show_code_details(commission_no: str, sam_str: str, wings_str: str, except_s
 
         if except_codes:
             st.divider()
-            st.markdown("#### Production Codes (automatically created, just for reference)")
+            st.markdown("#### Factory Control Codes (automatically created, just for reference)")
             _exc_in_sam = [c for c in except_codes if c in all_sam and c not in all_wings]
             _exc_in_wings = [c for c in except_codes if c in all_wings and c not in all_sam]
             _exc_in_both = [c for c in except_codes if c in all_sam and c in all_wings]
@@ -1956,7 +1956,7 @@ def show_code_details(commission_no: str, sam_str: str, wings_str: str, except_s
         _only_wings_set = set(wings_codes)
         _exc_set_view = set(except_codes)
 
-        # Production Code 판별: exception 목록 OR 첫 글자가 I/O/Z/U
+        # Factory Control Code 판별: exception 목록 OR 첫 글자가 I/O/Z/U
         _PROD_PREFIXES = ('I', 'O', 'Z', 'U')
         def _is_prod(c):
             return c in _exc_set_view or (c and c[0] in _PROD_PREFIXES)
@@ -1965,7 +1965,7 @@ def show_code_details(commission_no: str, sam_str: str, wings_str: str, except_s
         _exc_only_sam = sorted(c for c in except_codes if c in all_sam and c not in all_wings)
         _exc_only_wings = sorted(c for c in except_codes if c in all_wings and c not in all_sam)
 
-        # 모든 불일치/일치 코드를 하나로 합침 (Production Code는 아래로)
+        # 모든 불일치/일치 코드를 하나로 합침 (Factory Control Code는 아래로)
         def _sort_prod_last(codes):
             normal = sorted(c for c in codes if not _is_prod(c))
             prod = sorted(c for c in codes if _is_prod(c))
@@ -1992,11 +1992,11 @@ def show_code_details(commission_no: str, sam_str: str, wings_str: str, except_s
         st.markdown(_section_css, unsafe_allow_html=True)
 
         def _badge(code):
-            """코드 뒤에 Mandatory / Production 뱃지 추가"""
+            """코드 뒤에 Mandatory / Factory Control 뱃지 추가"""
             if code in _mand_set:
                 return '<span class="badge mandatory">Mandatory</span>'
             if _is_prod(code):
-                return '<span class="badge production">Production</span>'
+                return '<span class="badge production">Factory Control</span>'
             return ''
 
         # ── 섹션 1: 불일치 코드 (빨간색, 가장 중요) ──
@@ -2111,7 +2111,7 @@ def show_code_details(commission_no: str, sam_str: str, wings_str: str, except_s
     for code in wings_codes:
         rows.append({"Section": "Only in WINGS", "Code": code, "Description": _lookup_code(code)})
     for code in except_codes:
-        rows.append({"Section": "Production Codes (ref)", "Code": code, "Description": _lookup_code(code)})
+        rows.append({"Section": "Factory Control Codes (ref)", "Code": code, "Description": _lookup_code(code)})
     for code in sorted_mand:
         desc, note, cat = _mand_info(code)
         custom = _mand_desc.get(code)
@@ -2199,13 +2199,13 @@ def show_sam_file_codes():
             _render_code_section("🔴 Mandatory Codes", mand_codes, "#c0392b")
             if mand_codes:
                 st.markdown("---")
-            _render_code_section("🔧 Production Codes", prod_codes, "#e67e22")
+            _render_code_section("🔧 Factory Control Codes", prod_codes, "#e67e22")
             if prod_codes:
                 st.markdown("---")
             _render_code_section("📋 Other Codes", other_codes, "#1a5276")
 
 
-@st.dialog("Production Codes List", width="large")
+@st.dialog("Factory Control Codes List", width="large")
 def show_exception_codes():
     st.markdown("""<style>
     [data-testid="stDialog"] button[kind="secondary"] {
@@ -2863,7 +2863,7 @@ def compare(df_wings: pd.DataFrame, sam_maps_by_month: dict) -> pd.DataFrame:
             'Production date': r.get('Requested delivery date', '') if 'Requested delivery date' in r.index else '',
             'Only_in_SAM': ','.join(only_s_display),
             'Only_in_WINGS': ','.join(only_w_display) if sam_codes else '',
-            'Production Codes': ','.join(except_codes_row),
+            'Factory Control Codes': ','.join(except_codes_row),
             'Mandatory Codes': ','.join(mand_codes_row),
             '_all_wings_codes': ','.join(sorted(wings_codes)),
             '_all_sam_codes': ','.join(sorted(sam_codes)),
@@ -2938,7 +2938,7 @@ def to_excel_bytes(df: pd.DataFrame) -> bytes:
     with pd.ExcelWriter(towrite, engine='openpyxl') as writer:
         # Select key columns for output in desired order
         output_cols = ['Commission no.', 'Baumuster', 'Model(WINGS)', 'Vehicle', 'Type', 'Cab', 'PTO', 'Model(SAM)', 'Changeability Date',
-                       'Until Dealine', 'Production date', 'Only_in_SAM', 'Only_in_WINGS', 'Production Codes',
+                       'Until Dealine', 'Production date', 'Only_in_SAM', 'Only_in_WINGS', 'Factory Control Codes',
                        'Order status financial', 'Order status logistical', 'Gross equipment price (repricing)',
                        'Additional equipment (enumeration)', 'FIN', 'Subcategory (ID)',
                        'Requested delivery date', 'Compared SAM file name', 'SAM Status']
@@ -3329,7 +3329,7 @@ def main():
         _mand_count = len(st.session_state.get('_mand_codes_set', set()))
         if st.button(f'🔴 Mandatory Codes ({_mand_count})  — View List', key='_mand_view_btn', use_container_width=True):
             show_mandatory_codes()
-        if st.button(f'Production Codes ({len(except_codes)})  — View List', key='_exc_view_btn', use_container_width=True):
+        if st.button(f'Factory Control Codes ({len(except_codes)})  — View List', key='_exc_view_btn', use_container_width=True):
             show_exception_codes()
 
         _new_code = st.text_input('Code', key='_exc_new_code', placeholder='e.g. A1B', label_visibility='collapsed')
@@ -3474,7 +3474,7 @@ def main():
 
         # ── Prepare data splits ──────────────────────────────────────────────
         cols_table = ['Commission no.', 'Baumuster', 'Until Dealine', 'Changeability Date',
-                      'Production date', 'Vehicle', 'Model(WINGS)', 'Type', 'Cab', 'PTO', 'Model(SAM)', 'Only_in_SAM', 'Only_in_WINGS', 'Mandatory Codes', 'Production Codes', 'Compared SAM file name', 'SAM Status']
+                      'Production date', 'Vehicle', 'Model(WINGS)', 'Type', 'Cab', 'PTO', 'Model(SAM)', 'Only_in_SAM', 'Only_in_WINGS', 'Mandatory Codes', 'Factory Control Codes', 'Compared SAM file name', 'SAM Status']
         _hidden_cols = ['_all_wings_codes', '_all_sam_codes']
 
         # Sort by Production date (earlier months first), then by Until Dealine
@@ -3558,7 +3558,7 @@ def main():
                     str(row.get("Commission no.", "")),
                     str(row.get("Only_in_SAM", "")),
                     str(row.get("Only_in_WINGS", "")),
-                    str(row.get("Production Codes", "")),
+                    str(row.get("Factory Control Codes", "")),
                     str(row.get("_all_wings_codes", "")),
                     str(row.get("_all_sam_codes", "")),
                 )
