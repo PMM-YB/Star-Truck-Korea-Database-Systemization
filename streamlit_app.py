@@ -1944,9 +1944,9 @@ def show_code_details(commission_no: str, sam_str: str, wings_str: str, except_s
             for code in all_sam_sorted:
                 desc = _lookup_code(code)
                 if code in _only_sam_set:
-                    st.markdown(f"🔴 **`{code}`** &nbsp; {desc}")
+                    st.markdown(f'<span style="color:#e74c3c;font-weight:bold"><code>{code}</code></span> &nbsp; {desc}', unsafe_allow_html=True)
                 elif code in _exc_set_view:
-                    st.markdown(f"🟡 **`{code}`** &nbsp; {desc}")
+                    st.markdown(f'<span style="color:#f39c12;font-weight:bold"><code>{code}</code></span> &nbsp; {desc}', unsafe_allow_html=True)
                 else:
                     st.markdown(f"**`{code}`** &nbsp; {desc}")
         with fc2:
@@ -1954,12 +1954,12 @@ def show_code_details(commission_no: str, sam_str: str, wings_str: str, except_s
             for code in all_wings_sorted:
                 desc = _lookup_code(code)
                 if code in _only_wings_set:
-                    st.markdown(f"🔴 **`{code}`** &nbsp; {desc}")
+                    st.markdown(f'<span style="color:#e74c3c;font-weight:bold"><code>{code}</code></span> &nbsp; {desc}', unsafe_allow_html=True)
                 elif code in _exc_set_view:
-                    st.markdown(f"🟡 **`{code}`** &nbsp; {desc}")
+                    st.markdown(f'<span style="color:#f39c12;font-weight:bold"><code>{code}</code></span> &nbsp; {desc}', unsafe_allow_html=True)
                 else:
                     st.markdown(f"**`{code}`** &nbsp; {desc}")
-        st.caption("🔴 = Only in one side (mismatch) &nbsp;&nbsp; 🟡 = Production Code (reference only)")
+        st.caption('<span style="color:#e74c3c;font-weight:bold">RED</span> = Only in one side (mismatch) &nbsp;&nbsp; <span style="color:#f39c12;font-weight:bold">YELLOW</span> = Production Code (reference only)', unsafe_allow_html=True)
 
     # ── Mandatory Codes section ───────────────────────────────────────────────
     st.divider()
