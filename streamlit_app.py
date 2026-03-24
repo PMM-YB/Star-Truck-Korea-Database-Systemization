@@ -1945,28 +1945,21 @@ def show_code_details(commission_no: str, sam_str: str, wings_str: str, except_s
         _exc_only_sam = sorted(c for c in except_codes if c in all_sam and c not in all_wings)
         _exc_only_wings = sorted(c for c in except_codes if c in all_wings and c not in all_sam)
 
-        # 코드 분류: 일반 코드 vs Production Codes, 각각 불일치/일치 분리
-        _common_normal = sorted(c for c in (all_sam & all_wings) if not _is_prod(c) and c not in _mand_set)
-        _only_sam_normal = sorted(c for c in _only_sam_set if not _is_prod(c))
-        _only_wings_normal = sorted(c for c in _only_wings_set if not _is_prod(c))
-        _common_prod = sorted(c for c in (all_sam & all_wings) if _is_prod(c) and c not in _mand_set)
-        _only_sam_prod = _exc_only_sam
-        _only_wings_prod = _exc_only_wings
+        # 모든 불일치/일치 코드를 하나로 합침 (Production Code 포함)
+        _all_only_sam = sorted(set(list(_only_sam_set) + _exc_only_sam))
+        _all_only_wings = sorted(set(list(_only_wings_set) + _exc_only_wings))
+        _all_common = sorted(c for c in (all_sam & all_wings) if c not in _mand_set)
 
         _section_css = '''<style>
             .code-section { padding: 10px 14px; border-radius: 8px; margin-bottom: 8px; }
             .code-section.mismatch { background: #fef2f2; border-left: 4px solid #e74c3c; }
             .code-section.match { background: #f0fdf4; border-left: 4px solid #22c55e; }
-            .code-section.prod-mismatch { background: #fffbeb; border-left: 4px solid #f59e0b; }
-            .code-section.prod-match { background: #f5f3ff; border-left: 4px solid #8b5cf6; }
             .code-section h5 { margin: 0 0 6px 0; font-size: 14px; }
             .code-row { display: flex; gap: 8px; padding: 2px 0; font-size: 13px; }
             .code-row .code-left, .code-row .code-right { flex: 1; }
             .code-tag { font-weight: bold; font-family: monospace; padding: 1px 5px; border-radius: 3px; }
             .code-tag.red { color: #e74c3c; background: #fde8e8; }
             .code-tag.green { color: #16a34a; background: #dcfce7; }
-            .code-tag.orange { color: #d97706; background: #fef3c7; }
-            .code-tag.purple { color: #7c3aed; background: #ede9fe; }
             .code-desc { color: #555; font-size: 12px; }
             .badge { font-size: 9px; padding: 1px 5px; border-radius: 3px; font-weight: bold; vertical-align: middle; margin-left: 4px; }
             .badge.mandatory { color: #fff; background: #e74c3c; }
@@ -1983,68 +1976,36 @@ def show_code_details(commission_no: str, sam_str: str, wings_str: str, except_s
             return ''
 
         # ── 섹션 1: 불일치 코드 (빨간색, 가장 중요) ──
-        if _only_sam_normal or _only_wings_normal:
+        if _all_only_sam or _all_only_wings:
             _mis_html = '<div class="code-section mismatch">'
-            _mis_count = len(_only_sam_normal) + len(_only_wings_normal)
+            _mis_count = len(_all_only_sam) + len(_all_only_wings)
             _mis_html += f'<h5>❌ Mismatch Codes ({_mis_count})</h5>'
             _mis_html += '<div class="code-row"><div class="code-left"><b>Only in SAM</b></div><div class="code-right"><b>Only in WINGS</b></div></div>'
-            _max_mis = max(len(_only_sam_normal), len(_only_wings_normal))
+            _max_mis = max(len(_all_only_sam), len(_all_only_wings))
             for i in range(_max_mis):
                 _left = ''
                 _right = ''
-                if i < len(_only_sam_normal):
-                    c = _only_sam_normal[i]
+                if i < len(_all_only_sam):
+                    c = _all_only_sam[i]
                     _left = f'<span class="code-tag red">{c}</span>{_badge(c)} <span class="code-desc">{_lookup_code(c)}</span>'
-                if i < len(_only_wings_normal):
-                    c = _only_wings_normal[i]
+                if i < len(_all_only_wings):
+                    c = _all_only_wings[i]
                     _right = f'<span class="code-tag red">{c}</span>{_badge(c)} <span class="code-desc">{_lookup_code(c)}</span>'
                 _mis_html += f'<div class="code-row"><div class="code-left">{_left}</div><div class="code-right">{_right}</div></div>'
             _mis_html += '</div>'
             st.markdown(_mis_html, unsafe_allow_html=True)
 
         # ── 섹션 2: 일치 코드 (초록색, 평행 표시) ──
-        if _common_normal:
+        if _all_common:
             _match_html = '<div class="code-section match">'
-            _match_html += f'<h5>✅ Matching Codes ({len(_common_normal)})</h5>'
+            _match_html += f'<h5>✅ Matching Codes ({len(_all_common)})</h5>'
             _match_html += '<div class="code-row"><div class="code-left"><b>SAM</b></div><div class="code-right"><b>WINGS</b></div></div>'
-            for c in _common_normal:
+            for c in _all_common:
                 desc = _lookup_code(c)
                 b = _badge(c)
                 _match_html += f'<div class="code-row"><div class="code-left"><span class="code-tag green">{c}</span>{b} <span class="code-desc">{desc}</span></div><div class="code-right"><span class="code-tag green">{c}</span>{b} <span class="code-desc">{desc}</span></div></div>'
             _match_html += '</div>'
             st.markdown(_match_html, unsafe_allow_html=True)
-
-        # ── 섹션 3: Production Codes 불일치 (주황색) ──
-        if _only_sam_prod or _only_wings_prod:
-            _pmis_html = '<div class="code-section prod-mismatch">'
-            _pmis_count = len(_only_sam_prod) + len(_only_wings_prod)
-            _pmis_html += f'<h5>⚠️ Production Codes — Mismatch ({_pmis_count})</h5>'
-            _pmis_html += '<div class="code-row"><div class="code-left"><b>Only in SAM</b></div><div class="code-right"><b>Only in WINGS</b></div></div>'
-            _max_pmis = max(len(_only_sam_prod), len(_only_wings_prod))
-            for i in range(_max_pmis):
-                _left = ''
-                _right = ''
-                if i < len(_only_sam_prod):
-                    c = _only_sam_prod[i]
-                    _left = f'<span class="code-tag orange">{c}</span>{_badge(c)} <span class="code-desc">{_lookup_code(c)}</span>'
-                if i < len(_only_wings_prod):
-                    c = _only_wings_prod[i]
-                    _right = f'<span class="code-tag orange">{c}</span>{_badge(c)} <span class="code-desc">{_lookup_code(c)}</span>'
-                _pmis_html += f'<div class="code-row"><div class="code-left">{_left}</div><div class="code-right">{_right}</div></div>'
-            _pmis_html += '</div>'
-            st.markdown(_pmis_html, unsafe_allow_html=True)
-
-        # ── 섹션 4: Production Codes 일치 (보라색) ──
-        if _common_prod:
-            _pmatch_html = '<div class="code-section prod-match">'
-            _pmatch_html += f'<h5>✅ Production Codes — Matching ({len(_common_prod)})</h5>'
-            _pmatch_html += '<div class="code-row"><div class="code-left"><b>SAM</b></div><div class="code-right"><b>WINGS</b></div></div>'
-            for c in _common_prod:
-                desc = _lookup_code(c)
-                b = _badge(c)
-                _pmatch_html += f'<div class="code-row"><div class="code-left"><span class="code-tag purple">{c}</span>{b} <span class="code-desc">{desc}</span></div><div class="code-right"><span class="code-tag purple">{c}</span>{b} <span class="code-desc">{desc}</span></div></div>'
-            _pmatch_html += '</div>'
-            st.markdown(_pmatch_html, unsafe_allow_html=True)
 
         if not (all_sam or all_wings):
             st.info("No codes to display.")
