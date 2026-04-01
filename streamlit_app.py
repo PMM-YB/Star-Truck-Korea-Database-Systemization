@@ -2452,12 +2452,18 @@ def show_code_details(commission_no: str, sam_str: str, wings_str: str, except_s
                 if v and v not in ("nan", "NaT", "None"):
                     return v
             return "—"
+        # Compute MY: production month >= 4 → next year's MY, else current year's MY
+        _prod_date_str = _vget("Production date")
+        try:
+            _pd = pd.to_datetime(_prod_date_str, errors='coerce')
+            _my = str((_pd.year - 2000 + 1) if _pd.month >= 4 else (_pd.year - 2000)) if _pd is not pd.NaT and not pd.isnull(_pd) else "—"
+        except Exception:
+            _my = "—"
         _info_items = [
-            ("MY",           _vget("MY", "Production date")),
+            ("MY",           _my),
             ("Vehicle",      _vget("Vehicle")),
             ("Gen.",         _vget("Model(WINGS)", "Gen.")),
-            ("Prev. Model(SAM)", _vget("Previous Model(SAM)", "Baumuster")),
-            ("Curr. Model(SAM)", _vget("Current Model(SAM)")),
+            ("Model",        _vget("Current Model(SAM)")),
             ("Type",         _vget("Type")),
             ("Cab",          _vget("Cab")),
             ("Option/PTO",   _vget("PTO", "Option")),
