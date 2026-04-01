@@ -2459,15 +2459,17 @@ def show_code_details(commission_no: str, sam_str: str, wings_str: str, except_s
             _my = str((_pd.year - 2000 + 1) if _pd.month >= 4 else (_pd.year - 2000)) if _pd is not pd.NaT and not pd.isnull(_pd) else "—"
         except Exception:
             _my = "—"
+        # Build SAM Model string: Vehicle + Current Model(SAM) + Type + Cab [+ PTO]
+        _sam_parts = [_vget("Vehicle"), _vget("Current Model(SAM)"), _vget("Type"), _vget("Cab")]
+        _pto_val = _vget("PTO", "Option")
+        if _pto_val not in ("—", ""):
+            _sam_parts.append(_pto_val)
+        _sam_model = " ".join(p for p in _sam_parts if p and p != "—")
         _info_items = [
             ("MY",           _my),
-            ("Vehicle",      _vget("Vehicle")),
-            ("Gen.",         _vget("Model(WINGS)", "Gen.")),
-            ("Model",        _vget("Current Model(SAM)")),
-            ("Type",         _vget("Type")),
-            ("Cab",          _vget("Cab")),
-            ("Option/PTO",   _vget("PTO", "Option")),
+            ("SAM Model",    _sam_model or "—"),
             ("Baumuster",    _vget("Baumuster")),
+            ("PTO (O/X)",    _pto_val),
             ("Changeability",_vget("Changeability Date")),
         ]
         _cells = "".join(
