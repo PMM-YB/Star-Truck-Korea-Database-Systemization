@@ -2462,8 +2462,6 @@ def show_code_details(commission_no: str, sam_str: str, wings_str: str, except_s
         # Build SAM Model string: Vehicle + Current Model(SAM) + Type + Cab [+ PTO]
         _sam_parts = [_vget("Vehicle"), _vget("Current Model(SAM)"), _vget("Type"), _vget("Cab")]
         _pto_val = _vget("PTO", "Option")
-        if _pto_val not in ("—", ""):
-            _sam_parts.append(_pto_val)
         _sam_model = " ".join(p for p in _sam_parts if p and p != "—")
         _info_items = [
             ("MY",           _my),
