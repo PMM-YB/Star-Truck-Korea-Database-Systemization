@@ -3682,6 +3682,9 @@ def compare(df_wings: pd.DataFrame, sam_maps_by_month: dict) -> pd.DataFrame:
             # PTO
             if re.search(r'\bPTO\b', sam_file, re.IGNORECASE):
                 _pto_flag = 'PTO'
+        # Also mark PTO when WINGS codes indicate PTO (e.g. Z5M, N1G for 2853 LS)
+        if not _pto_flag and is_pto:
+            _pto_flag = 'PTO'
         # Fallback: infer Vehicle from model number if SAM didn't provide it
         if not _vehicle:
             _model_upper = model_raw.upper()
