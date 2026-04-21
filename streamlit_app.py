@@ -3338,7 +3338,7 @@ def _normalize_model(model: str) -> str:
         '2851': '2651',
         '2135': '1835',
         '2863': '2663',
-        '2853': '2653',
+        '2853': '2663',  # 2853 LS shares SAM files with 2863 LS
     }
     for old, new in historic.items():
         if cleaned.startswith(old):
