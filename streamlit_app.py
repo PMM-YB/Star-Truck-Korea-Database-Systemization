@@ -3630,21 +3630,19 @@ def compare(df_wings: pd.DataFrame, sam_maps_by_month: dict) -> pd.DataFrame:
                     sam_entry = v
                     break
 
-        # Fallback for 2853 LS: no own SAM, OR is_pto=True but only non-PTO SAM exists
-        # In both cases, try the 2863 LS (2663LS) SAM files which cover the same vehicle family
+        # Fallback for 2853 LS: use 2863 LS (2663LS) SAM when 2653LS lacks the needed variant
+        # Need fallback when: no 2653LS SAM at all, OR is_pto=True but no True key in sam_entry
         if model_norm == '2653LS' and sam_maps_list:
-            _own_pto_codes, _ = (sam_entry.get(True, {}).get('codes', set()), '') if isinstance(sam_entry, dict) else (set(), '')
-            _need_fallback = False
-            if not isinstance(sam_entry, dict) or not sam_entry:
-                _need_fallback = True  # no 2653LS SAM at all
-            elif is_pto and not _own_pto_codes:
-                _need_fallback = True  # PTO vehicle but no 2653LS PTO SAM
-            if _need_fallback:
+            _need_2663 = (
+                not isinstance(sam_entry, dict) or
+                not sam_entry or
+                (is_pto and True not in sam_entry)
+            )
+            if _need_2663:
                 for _try_map in sam_maps_list:
-                    _fb = _try_map.get('2663LS', {})
-                    _fb_codes, _ = _get_sam_data(_fb, is_pto)
-                    if _fb_codes:
-                        sam_entry = _fb
+                    _alt = _try_map.get('2663LS', {})
+                    if isinstance(_alt, dict) and _alt:
+                        sam_entry = _alt
                         sam_map = _try_map
                         break
 
