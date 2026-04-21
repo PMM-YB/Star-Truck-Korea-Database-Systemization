@@ -3562,8 +3562,8 @@ def compare(df_wings: pd.DataFrame, sam_maps_by_month: dict) -> pd.DataFrame:
         wings_codes = set(r['WINGS_codes'] or [])
         model_norm = _normalize_model(model_raw)
 
-        # Initial PTO detection: WINGS raw text contains "PTO" OR any code description contains "PTO"
-        is_pto = bool(r.get('WINGS_has_pto', False)) or any('PTO' in OPTION_CODE_MAP.get(c, '').upper() for c in wings_codes)
+        # Initial PTO detection: look up each WINGS code in All Code List (includes user-added descriptions)
+        is_pto = any('PTO' in _lookup_code(c).upper() for c in wings_codes)
 
         def _split_model(s: str):
             # split into leading digits and trailing letters e.g. '3253K' -> ('3253', 'K')
