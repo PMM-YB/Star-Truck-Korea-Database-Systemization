@@ -3466,13 +3466,15 @@ def _parse_single_sam_file(file_obj, name: str, mapping: dict, log_fn=None):
     if model_raw and codes:
         model_norm = _normalize_model(model_raw)
         if model_norm:
-            # Detect PTO: check filename first (most reliable), then codes, then doc text
-            is_pto = bool(re.search(r'\bPTO\b', name, re.IGNORECASE))
-            if not is_pto:
-                is_pto = any('PTO' in OPTION_CODE_MAP.get(c, '').upper() for c in codes)
+            # Detect PTO: codes first (most reliable), then doc text, then filename
+            is_pto = any('PTO' in OPTION_CODE_MAP.get(c, '').upper() for c in codes)
             if not is_pto:
                 _doc_text = full_text if name.lower().endswith('.docx') else ''
                 if _doc_text and re.search(r'\bPTO\b', _doc_text, re.IGNORECASE):
+                    is_pto = True
+            if not is_pto:
+                # Last resort: check filename (for SAM files where PTO codes aren't yet in OPTION_CODE_MAP)
+                if re.search(r'\bPTO\b', name, re.IGNORECASE):
                     is_pto = True
             if model_norm not in mapping:
                 mapping[model_norm] = {}
@@ -3623,13 +3625,23 @@ def compare(df_wings: pd.DataFrame, sam_maps_by_month: dict) -> pd.DataFrame:
                     sam_entry = v
                     break
 
-        # Fallback for 2853 LS: if no 2653LS SAM found, try 2663LS (2863 LS SAM files)
-        _probe_codes2, _ = _get_sam_data(sam_entry, is_pto)
-        if not _probe_codes2 and model_norm == '2653LS' and sam_maps_list:
-            _fallback_entry = sam_maps_list[0].get('2663LS', {})
-            if _fallback_entry:
-                sam_entry = _fallback_entry
-                sam_map = sam_maps_list[0]
+        # Fallback for 2853 LS: no own SAM, OR is_pto=True but only non-PTO SAM exists
+        # In both cases, try the 2863 LS (2663LS) SAM files which cover the same vehicle family
+        if model_norm == '2653LS' and sam_maps_list:
+            _own_pto_codes, _ = (sam_entry.get(True, {}).get('codes', set()), '') if isinstance(sam_entry, dict) else (set(), '')
+            _need_fallback = False
+            if not isinstance(sam_entry, dict) or not sam_entry:
+                _need_fallback = True  # no 2653LS SAM at all
+            elif is_pto and not _own_pto_codes:
+                _need_fallback = True  # PTO vehicle but no 2653LS PTO SAM
+            if _need_fallback:
+                for _try_map in sam_maps_list:
+                    _fb = _try_map.get('2663LS', {})
+                    _fb_codes, _ = _get_sam_data(_fb, is_pto)
+                    if _fb_codes:
+                        sam_entry = _fb
+                        sam_map = _try_map
+                        break
 
         # Refine PTO detection: if both PTO/non-PTO SAM variants exist,
         # check whether WINGS contains any code that only appears in the PTO SAM file.
