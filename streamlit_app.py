@@ -3292,9 +3292,15 @@ def parse_wings(file) -> pd.DataFrame:
         for part in text_parts[1:]:
             combined = combined + ' ' + part
         df['WINGS_codes'] = combined.apply(extract_codes)
+        # Flag rows where the raw equipment text itself contains "PTO" —
+        # catches codes whose descriptions are written in the WINGS export but
+        # are not yet in OPTION_CODE_MAP (e.g. 2853 LS PTO variants).
+        df['WINGS_has_pto'] = combined.str.contains(r'\bPTO\b', case=False, na=False)
     else:
         # Final fallback
         df['WINGS_codes'] = df.astype(str).agg(' '.join, axis=1).apply(extract_codes)
+        _all_text = df.astype(str).agg(' '.join, axis=1)
+        df['WINGS_has_pto'] = _all_text.str.contains(r'\bPTO\b', case=False, na=False)
     
     # Return with both Model name and Baumuster number, plus additional columns
     result_cols = ['Commission no.', model_col, 'WINGS_codes']
@@ -3556,8 +3562,8 @@ def compare(df_wings: pd.DataFrame, sam_maps_by_month: dict) -> pd.DataFrame:
         wings_codes = set(r['WINGS_codes'] or [])
         model_norm = _normalize_model(model_raw)
 
-        # Initial PTO detection: any WINGS code whose description contains "PTO"
-        is_pto = any('PTO' in OPTION_CODE_MAP.get(c, '').upper() for c in wings_codes)
+        # Initial PTO detection: WINGS raw text contains "PTO" OR any code description contains "PTO"
+        is_pto = bool(r.get('WINGS_has_pto', False)) or any('PTO' in OPTION_CODE_MAP.get(c, '').upper() for c in wings_codes)
 
         def _split_model(s: str):
             # split into leading digits and trailing letters e.g. '3253K' -> ('3253', 'K')
