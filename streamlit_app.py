@@ -3466,15 +3466,11 @@ def _parse_single_sam_file(file_obj, name: str, mapping: dict, log_fn=None):
     if model_raw and codes:
         model_norm = _normalize_model(model_raw)
         if model_norm:
-            # Detect PTO by option code descriptions OR raw document text.
-            # 1) Check OPTION_CODE_MAP descriptions for known PTO codes.
-            # 2) Also check the raw document text — some models (e.g. 2853 LS) list
-            #    PTO codes whose descriptions are written directly in the SAM file
-            #    but are not yet in OPTION_CODE_MAP.
-            is_pto = any('PTO' in OPTION_CODE_MAP.get(c, '').upper() for c in codes)
+            # Detect PTO: check filename first (most reliable), then codes, then doc text
+            is_pto = bool(re.search(r'\bPTO\b', name, re.IGNORECASE))
             if not is_pto:
-                # Check document text: look for "PTO" near an option-code-like token
-                # in equipment sections (avoids false positives from generic mentions).
+                is_pto = any('PTO' in OPTION_CODE_MAP.get(c, '').upper() for c in codes)
+            if not is_pto:
                 _doc_text = full_text if name.lower().endswith('.docx') else ''
                 if _doc_text and re.search(r'\bPTO\b', _doc_text, re.IGNORECASE):
                     is_pto = True
