@@ -3822,145 +3822,6 @@ def to_excel_bytes(df: pd.DataFrame) -> bytes:
     return towrite.getvalue()
 
 
-def _render_molit_tab():
-    """MOLIT 신규등록 현황 탭 - 벤츠 상용차 월별 판매대수 시각화."""
-    import csv as _csv
-    import io as _io
-    import re as _re2
-
-    st.markdown("### \U0001F69B 벤츠 상용차 월별 신규등록 현황 (MOLIT)")
-    st.caption("출처: 국토교통부 자동차 신규등록 통계 (스타트럭코리아 제공 데이터)")
-
-    BENZ_COMMERCIAL = {'Actros', 'Unimog', 'Arocs', 'Atego', 'Sprinter'}
-
-    uploaded = st.file_uploader(
-        "MOLIT CSV 파일 업로드 (NEW_REGIST_*.csv 또는 *_A10_NEW.csv)",
-        type=['csv'],
-        accept_multiple_files=True,
-        key='molit_uploader',
-        help="스타트럭코리아_CSV 폴더의 파일을 여러 개 올리세요.",
-    )
-
-    if not uploaded:
-        st.info(
-            "CSV 파일을 업로드하면 월별 신규등록 현황을 시각화합니다.\n\n"
-            "**파일 위치:** `바탕화면/MOLIT/스타트럭코리아_CSV/` 폴더의 CSV 파일들"
-        )
-        return
-
-    records = []
-    for uf in uploaded:
-        fname = uf.name
-        m = _re2.search(r'NEW_REGIST_(\d{4})(\d{2})', fname)
-        if m:
-            file_month_str = m.group(1) + m.group(2)
-        else:
-            m2 = _re2.search(r'(\d{2})\.(\d{2})_A10', fname)
-            file_month_str = ('20' + m2.group(1) + m2.group(2)) if m2 else '000000'
-
-        raw = uf.read()
-        text = None
-        for enc in ('utf-8-sig', 'utf-8', 'cp949', 'euc-kr'):
-            try:
-                text = raw.decode(enc)
-                break
-            except Exception:
-                continue
-        if text is None:
-            continue
-
-        reader = _csv.reader(_io.StringIO(text))
-        for row in reader:
-            if len(row) < 28:
-                continue
-            car_name = row[9]
-            if car_name not in BENZ_COMMERCIAL:
-                continue
-            raw_month = row[27][:6] if len(row[27]) >= 6 and row[27][:6].isdigit() else file_month_str
-            records.append({
-                '월': raw_month[:4] + '-' + raw_month[4:6],
-                '차명': car_name,
-                '차종': row[1],
-                '용도': row[25] if len(row) > 25 else '',
-                '지역': row[33] if len(row) > 33 else '',
-                '엔진형식': row[4],
-                '제원번호': row[5],
-            })
-
-    if not records:
-        st.warning("업로드한 파일에서 벤츠 상용차 데이터를 찾지 못했습니다.")
-        return
-
-    try:
-        import pandas as _pd
-    except ImportError:
-        st.error("pandas가 필요합니다.")
-        return
-
-    df = _pd.DataFrame(records)
-    df = df.sort_values('월')
-
-    total = len(df)
-    months = df['월'].nunique()
-    avg = total / months if months else 0
-
-    mc1, mc2, mc3 = st.columns(3)
-    mc1.metric("총 신규등록", f"{total:,}대")
-    mc2.metric("집계 기간", f"{months}개월")
-    mc3.metric("월 평균", f"{avg:.1f}대")
-
-    st.markdown("---")
-
-    mt1, mt2, mt3 = st.tabs(["\U0001F4C8 월별 추이", "\U0001F522 모델별", "\U0001F4CB 상세 데이터"])
-
-    with mt1:
-        monthly = df.groupby(['월', '차명']).size().reset_index(name='대수')
-        monthly_total = df.groupby('월').size().reset_index(name='합계')
-
-        try:
-            import altair as _alt
-            chart = _alt.Chart(monthly).mark_bar().encode(
-                x=_alt.X('월:O', title='월', sort=None),
-                y=_alt.Y('대수:Q', title='신규등록 대수'),
-                color=_alt.Color('차명:N', legend=_alt.Legend(title='차명')),
-                tooltip=['월', '차명', '대수'],
-            ).properties(height=380, title='벤츠 상용차 월별 신규등록')
-            st.altair_chart(chart, use_container_width=True)
-        except Exception:
-            pivot = monthly.pivot(index='월', columns='차명', values='대수').fillna(0).astype(int)
-            pivot['합계'] = pivot.sum(axis=1)
-            st.dataframe(pivot, use_container_width=True)
-
-        st.dataframe(
-            monthly_total.rename(columns={'월': '월'}),
-            use_container_width=True, hide_index=True,
-        )
-
-    with mt2:
-        model_cnt = df.groupby('차명').size().reset_index(name='누적등록').sort_values('누적등록', ascending=False)
-        st.dataframe(model_cnt, use_container_width=True, hide_index=True)
-
-        st.markdown("**용도별 분포**")
-        usage = df.groupby('용도').size().reset_index(name='대수').sort_values('대수', ascending=False)
-        st.dataframe(usage, use_container_width=True, hide_index=True)
-
-        st.markdown("**지역별 TOP 10**")
-        region = df.groupby('지역').size().reset_index(name='대수').sort_values('대수', ascending=False).head(10)
-        st.dataframe(region, use_container_width=True, hide_index=True)
-
-    with mt3:
-        show_cols = ['월', '차명', '제원번호', '엔진형식', '차종', '용도', '지역']
-        avail = [c for c in show_cols if c in df.columns]
-        st.dataframe(df[avail].reset_index(drop=True), use_container_width=True, height=500)
-        csv_bytes = df[avail].to_csv(index=False, encoding='utf-8-sig').encode('utf-8-sig')
-        st.download_button(
-            "\U0001F4E5 상세 데이터 다운로드 (CSV)",
-            data=csv_bytes,
-            file_name="벤츠상용차_신규등록_상세.csv",
-            key='molit_detail_dl',
-        )
-
-
 def main():
     st.set_page_config(page_title='AFAB vs SAM Comparison', layout='wide')
     st.sidebar.caption('🔧 deploy-check: 2026-04-22-v6')
@@ -4396,241 +4257,232 @@ def main():
         st.session_state['_auto_fetch_months'] = _auto_months
         st.session_state['_auto_fetch_trigger'] = True
 
-    # ── Top-level page tabs ──────────────────────────────────────────────────
-    _page_tab1, _page_tab2 = st.tabs([
-        "\U0001F4CA AFAB vs SAM Comparison",
-        "\U0001F69B MOLIT 신규등록 현황",
-    ])
-    with _page_tab2:
-        _render_molit_tab()
-    with _page_tab1:
-
-        # ── Search by Production Date (main area) ───────────────────────────────
-        st.subheader('Search by Production Date')
-        _sel_months = st.multiselect(
-            'Select Production Month(s)',
-            options=_month_opts,
-            default=st.session_state.get('_auto_fetch_months', []),
-            key='wings_months_main',
+    # ── Search by Production Date (main area) ───────────────────────────────
+    st.subheader('Search by Production Date')
+    _sel_months = st.multiselect(
+        'Select Production Month(s)',
+        options=_month_opts,
+        default=st.session_state.get('_auto_fetch_months', []),
+        key='wings_months_main',
+    )
+    _main_col1, _main_col2 = st.columns([2, 1])
+    with _main_col1:
+        _fetch_btn = st.button(
+            'Auto-fetch from WINGS',
+            key='wings_fetch_btn_main',
+            type='primary',
+            disabled=not _sel_months,
         )
-        _main_col1, _main_col2 = st.columns([2, 1])
-        with _main_col1:
-            _fetch_btn = st.button(
-                'Auto-fetch from WINGS',
-                key='wings_fetch_btn_main',
-                type='primary',
-                disabled=not _sel_months,
-            )
-        with _main_col2:
-            if st.session_state.get('_wings_auto_name'):
-                st.caption(f"Loaded: {st.session_state['_wings_auto_name']}")
-                if st.button('Clear', key='wings_clear_main'):
-                    st.session_state.pop('_wings_auto_bytes', None)
-                    st.session_state.pop('_wings_auto_name', None)
-                    st.rerun()
+    with _main_col2:
+        if st.session_state.get('_wings_auto_name'):
+            st.caption(f"Loaded: {st.session_state['_wings_auto_name']}")
+            if st.button('Clear', key='wings_clear_main'):
+                st.session_state.pop('_wings_auto_bytes', None)
+                st.session_state.pop('_wings_auto_name', None)
+                st.rerun()
 
-        # ── 이전 다운로드 결과 자동 복구 (스케줄러 또는 이전 세션 결과) ────────────
-        if not st.session_state.get('_wings_auto_bytes'):
-            _prev_result = os.path.join(os.path.dirname(os.path.abspath(__file__)), '_wings_dl', '_result.json')
-            if os.path.exists(_prev_result):
-                try:
-                    import json as _json_mod
-                    with open(_prev_result, 'r', encoding='utf-8') as _rf:
-                        _prev = _json_mod.load(_rf)
-                    if _prev.get('ok') and _prev.get('path') and os.path.exists(_prev['path']):
-                        with open(_prev['path'], 'rb') as _f:
-                            st.session_state['_wings_auto_bytes'] = _f.read()
-                        st.session_state['_wings_auto_name'] = os.path.basename(_prev['path'])
-                        st.session_state['_auto_fetch_done'] = True
-                        st.success(f"이전 다운로드 자동 로드: {st.session_state['_wings_auto_name']}")
-                        st.rerun()
-                except Exception:
-                    pass
-
-        # ── Handle Auto-fetch (button OR auto_fetch query param) ────────────────
-        _auto_trigger = st.session_state.pop('_auto_fetch_trigger', False)
-        if (_fetch_btn or _auto_trigger) and _sel_months:
-            if not _WINGS_AUTO:
-                st.warning('Auto-fetch requires the local environment with WINGS access. Please upload a file manually below.')
-            else:
-                _prog = st.progress(0, text='Connecting to WINGS...')
-                _status_ph = st.empty()
-                _step_count = [0]
-                def _on_status(msg):
-                    _step_count[0] += 1
-                    _pct = min(_step_count[0] * 15, 90)
-                    _prog.progress(_pct, text=msg)
-                    _status_ph.info(msg)
-                try:
-                    _dl_path = _wings_fetch(
-                        months=_sel_months,
-                        on_status=_on_status,
-                    )
-                    _prog.progress(100, text='Download complete!')
-                    with open(_dl_path, 'rb') as _f:
+    # ── 이전 다운로드 결과 자동 복구 (스케줄러 또는 이전 세션 결과) ────────────
+    if not st.session_state.get('_wings_auto_bytes'):
+        _prev_result = os.path.join(os.path.dirname(os.path.abspath(__file__)), '_wings_dl', '_result.json')
+        if os.path.exists(_prev_result):
+            try:
+                import json as _json_mod
+                with open(_prev_result, 'r', encoding='utf-8') as _rf:
+                    _prev = _json_mod.load(_rf)
+                if _prev.get('ok') and _prev.get('path') and os.path.exists(_prev['path']):
+                    with open(_prev['path'], 'rb') as _f:
                         st.session_state['_wings_auto_bytes'] = _f.read()
-                    st.session_state['_wings_auto_name'] = os.path.basename(_dl_path)
+                    st.session_state['_wings_auto_name'] = os.path.basename(_prev['path'])
                     st.session_state['_auto_fetch_done'] = True
-                    _status_ph.success(f"Download complete: {st.session_state['_wings_auto_name']}")
+                    st.success(f"이전 다운로드 자동 로드: {st.session_state['_wings_auto_name']}")
                     st.rerun()
-                except Exception as _e:
-                    import traceback as _tb
-                    _prog.empty()
-                    _status_ph.error(
-                        f'Download failed: {type(_e).__name__}: {_e}\n\n'
-                        f'```\n{_tb.format_exc()}\n```'
-                    )
+            except Exception:
+                pass
 
-        st.divider()
-        st.markdown('**Or upload a file directly:**')
+    # ── Handle Auto-fetch (button OR auto_fetch query param) ────────────────
+    _auto_trigger = st.session_state.pop('_auto_fetch_trigger', False)
+    if (_fetch_btn or _auto_trigger) and _sel_months:
+        if not _WINGS_AUTO:
+            st.warning('Auto-fetch requires the local environment with WINGS access. Please upload a file manually below.')
+        else:
+            _prog = st.progress(0, text='Connecting to WINGS...')
+            _status_ph = st.empty()
+            _step_count = [0]
+            def _on_status(msg):
+                _step_count[0] += 1
+                _pct = min(_step_count[0] * 15, 90)
+                _prog.progress(_pct, text=msg)
+                _status_ph.info(msg)
+            try:
+                _dl_path = _wings_fetch(
+                    months=_sel_months,
+                    on_status=_on_status,
+                )
+                _prog.progress(100, text='Download complete!')
+                with open(_dl_path, 'rb') as _f:
+                    st.session_state['_wings_auto_bytes'] = _f.read()
+                st.session_state['_wings_auto_name'] = os.path.basename(_dl_path)
+                st.session_state['_auto_fetch_done'] = True
+                _status_ph.success(f"Download complete: {st.session_state['_wings_auto_name']}")
+                st.rerun()
+            except Exception as _e:
+                import traceback as _tb
+                _prog.empty()
+                _status_ph.error(
+                    f'Download failed: {type(_e).__name__}: {_e}\n\n'
+                    f'```\n{_tb.format_exc()}\n```'
+                )
 
-        # ── File uploader (main area) ─────────────────────────────────────────────
-        wings_file = st.file_uploader('Upload AFAB CSV/Excel File', type=['csv', 'xlsx', 'xls'])
+    st.divider()
+    st.markdown('**Or upload a file directly:**')
 
-        # 자동 다운로드된 파일이 있고 업로드된 파일이 없으면 자동 파일 사용
-        if wings_file is None and st.session_state.get('_wings_auto_bytes'):
-            wings_file = io.BytesIO(st.session_state['_wings_auto_bytes'])
-            st.info(f"Using auto-downloaded file: {st.session_state.get('_wings_auto_name', 'wings.xlsx')}")
+    # ── File uploader (main area) ─────────────────────────────────────────────
+    wings_file = st.file_uploader('Upload AFAB CSV/Excel File', type=['csv', 'xlsx', 'xls'])
 
-        # Fallback: load latest file from wings_data/ only in auto_fetch mode
-        if wings_file is None and _auto_fetch_mode:
-            _wd = Path('wings_data')
-            if _wd.exists():
-                _wfiles = sorted(_wd.glob('WINGS_*.csv'), key=lambda p: p.stat().st_mtime, reverse=True)
-                if _wfiles:
-                    wings_file = open(_wfiles[0], 'rb')
-                    st.info(f"Using scheduled data: {_wfiles[0].name}")
+    # 자동 다운로드된 파일이 있고 업로드된 파일이 없으면 자동 파일 사용
+    if wings_file is None and st.session_state.get('_wings_auto_bytes'):
+        wings_file = io.BytesIO(st.session_state['_wings_auto_bytes'])
+        st.info(f"Using auto-downloaded file: {st.session_state.get('_wings_auto_name', 'wings.xlsx')}")
 
-        if wings_file is not None:
-            df_w = parse_wings(wings_file)
-            st.success(f'AFAB file loaded: {len(df_w)} rows')
+    # Fallback: load latest file from wings_data/ only in auto_fetch mode
+    if wings_file is None and _auto_fetch_mode:
+        _wd = Path('wings_data')
+        if _wd.exists():
+            _wfiles = sorted(_wd.glob('WINGS_*.csv'), key=lambda p: p.stat().st_mtime, reverse=True)
+            if _wfiles:
+                wings_file = open(_wfiles[0], 'rb')
+                st.info(f"Using scheduled data: {_wfiles[0].name}")
 
-            comp = compare(df_w, sam_maps_by_month)
+    if wings_file is not None:
+        df_w = parse_wings(wings_file)
+        st.success(f'AFAB file loaded: {len(df_w)} rows')
 
-            # ── Prepare data splits ──────────────────────────────────────────────
-            cols_table = ['Commission no.', 'Baumuster', 'Until Dealine', 'Changeability Date',
-                          'Production date', 'Vehicle', 'Model(WINGS)', 'Type', 'Cab', 'PTO', 'Previous Model(SAM)', 'Current Model(SAM)', 'Only_in_SAM', 'Only_in_WINGS', 'Mandatory Codes', 'Factory Control Codes', 'Compared SAM file name', 'SAM Status']
-            _hidden_cols = ['_all_wings_codes', '_all_sam_codes']
+        comp = compare(df_w, sam_maps_by_month)
 
-            # Sort by Production date (earlier months first), then by Until Dealine
-            if 'Production date' in comp.columns:
-                comp['_prod_date_sort'] = pd.to_datetime(comp['Production date'], errors='coerce')
-                comp['_change_date_sort'] = pd.to_datetime(comp['Changeability Date'], errors='coerce')
-                comp = comp.sort_values(['_prod_date_sort', '_change_date_sort'], ascending=[True, True])
+        # ── Prepare data splits ──────────────────────────────────────────────
+        cols_table = ['Commission no.', 'Baumuster', 'Until Dealine', 'Changeability Date',
+                      'Production date', 'Vehicle', 'Model(WINGS)', 'Type', 'Cab', 'PTO', 'Previous Model(SAM)', 'Current Model(SAM)', 'Only_in_SAM', 'Only_in_WINGS', 'Mandatory Codes', 'Factory Control Codes', 'Compared SAM file name', 'SAM Status']
+        _hidden_cols = ['_all_wings_codes', '_all_sam_codes']
 
-            if 'Until Dealine' in comp.columns:
-                comp['_UntilDealine_days'] = pd.to_numeric(comp['Until Dealine'], errors='coerce')
-                very_urgent = comp[
-                    (comp['_UntilDealine_days'].notna()) &
-                    (comp['_UntilDealine_days'] >= 0) &
-                    (comp['_UntilDealine_days'] <= 14)
-                ].copy().sort_values(['_prod_date_sort', '_UntilDealine_days'], ascending=[True, True])
-                urgent = comp[
-                    (comp['_UntilDealine_days'].notna()) &
-                    (comp['_UntilDealine_days'] >= 0) &
-                    (comp['_UntilDealine_days'] <= 60)
-                ].copy().sort_values(['_prod_date_sort', '_UntilDealine_days'], ascending=[True, True])
+        # Sort by Production date (earlier months first), then by Until Dealine
+        if 'Production date' in comp.columns:
+            comp['_prod_date_sort'] = pd.to_datetime(comp['Production date'], errors='coerce')
+            comp['_change_date_sort'] = pd.to_datetime(comp['Changeability Date'], errors='coerce')
+            comp = comp.sort_values(['_prod_date_sort', '_change_date_sort'], ascending=[True, True])
+
+        if 'Until Dealine' in comp.columns:
+            comp['_UntilDealine_days'] = pd.to_numeric(comp['Until Dealine'], errors='coerce')
+            very_urgent = comp[
+                (comp['_UntilDealine_days'].notna()) &
+                (comp['_UntilDealine_days'] >= 0) &
+                (comp['_UntilDealine_days'] <= 14)
+            ].copy().sort_values(['_prod_date_sort', '_UntilDealine_days'], ascending=[True, True])
+            urgent = comp[
+                (comp['_UntilDealine_days'].notna()) &
+                (comp['_UntilDealine_days'] >= 0) &
+                (comp['_UntilDealine_days'] <= 60)
+            ].copy().sort_values(['_prod_date_sort', '_UntilDealine_days'], ascending=[True, True])
+        else:
+            very_urgent = pd.DataFrame()
+            urgent = pd.DataFrame()
+
+        # ── KPI metric cards ─────────────────────────────────────────────────
+        _total = len(comp)
+        # Match/Mismatch based on SAM Status column
+        _match = len(comp[comp['SAM Status'] == 'Match']) if 'SAM Status' in comp.columns else 0
+        _mismatch = _total - _match
+        _vu_count = len(very_urgent)
+
+        st.markdown('<div class="section-card">', unsafe_allow_html=True)
+        k1, k2, k3, k4 = st.columns(4)
+        with k1:
+            st.markdown(f'''<div class="kpi-card blue">
+                <p class="kpi-label">Total Commissions</p>
+                <p class="kpi-value">{_total}</p>
+            </div>''', unsafe_allow_html=True)
+        with k2:
+            st.markdown(f'''<div class="kpi-card red">
+                <p class="kpi-label">Mismatch</p>
+                <p class="kpi-value">{_mismatch}</p>
+            </div>''', unsafe_allow_html=True)
+        with k3:
+            st.markdown(f'''<div class="kpi-card green">
+                <p class="kpi-label">Match</p>
+                <p class="kpi-value">{_match}</p>
+            </div>''', unsafe_allow_html=True)
+        with k4:
+            st.markdown(f'''<div class="kpi-card orange">
+                <p class="kpi-label">Urgent (≤ 2 wks)</p>
+                <p class="kpi-value">{_vu_count}</p>
+            </div>''', unsafe_allow_html=True)
+        st.markdown('</div>', unsafe_allow_html=True)
+
+        # ── Tabbed results ───────────────────────────────────────────────────
+        tab1, tab2, tab3 = st.tabs([
+            f'🚨 Changeability Date ≤ 2 weeks ({_vu_count})',
+            f'📋 Changeability Date ≤ 60 days ({len(urgent)})',
+            f'📊 All Data ({_total})',
+        ])
+
+        def _render_tab(display_df, available_cols, tab_key, dl_label, dl_filename, empty_msg=None):
+            """Render a dataframe tab with checkbox row selection."""
+            if display_df.empty:
+                if empty_msg:
+                    st.info(empty_msg)
+                return
+            st.caption('Select a row using the checkbox on the left to view option code details.')
+            event = st.dataframe(
+                display_df[available_cols].style.apply(_style_deadline, axis=None),
+                on_select="rerun",
+                selection_mode="single-row",
+                use_container_width=True,
+                key=f"df_{tab_key}",
+            )
+            if event.selection.rows:
+                idx = event.selection.rows[0]
+                row = display_df.iloc[idx]
+                show_code_details(
+                    str(row.get("Commission no.", "")),
+                    str(row.get("Only_in_SAM", "")),
+                    str(row.get("Only_in_WINGS", "")),
+                    str(row.get("Factory Control Codes", "")),
+                    str(row.get("_all_wings_codes", "")),
+                    str(row.get("_all_sam_codes", "")),
+                    vehicle_row=row.to_dict(),
+                )
+            st.download_button(
+                f'📥 {dl_label}',
+                data=to_excel_bytes(display_df),
+                file_name=dl_filename,
+                key=f'dl_{tab_key}',
+            )
+
+        with tab1:
+            if not very_urgent.empty:
+                available = [c for c in cols_table if c in very_urgent.columns]
+                available_with_hidden = available + [c for c in _hidden_cols if c in very_urgent.columns]
+                very_urgent_display = very_urgent[available_with_hidden].reset_index(drop=True)
+                _render_tab(very_urgent_display, available, 'very_urgent',
+                            'Download Urgent (≤ 2 weeks) Excel', 'urgent_2weeks.xlsx')
             else:
-                very_urgent = pd.DataFrame()
-                urgent = pd.DataFrame()
+                st.success("No urgent corrections needed within 2 weeks.")
 
-            # ── KPI metric cards ─────────────────────────────────────────────────
-            _total = len(comp)
-            # Match/Mismatch based on SAM Status column
-            _match = len(comp[comp['SAM Status'] == 'Match']) if 'SAM Status' in comp.columns else 0
-            _mismatch = _total - _match
-            _vu_count = len(very_urgent)
+        with tab2:
+            if not urgent.empty:
+                available = [c for c in cols_table if c in urgent.columns]
+                available_with_hidden = available + [c for c in _hidden_cols if c in urgent.columns]
+                urgent_display = urgent[available_with_hidden].reset_index(drop=True)
+                _render_tab(urgent_display, available, '60days',
+                            'Download Changeability (≤ 60 days) Excel', 'changeability_60days.xlsx')
+            else:
+                st.info("No corrections needed within 60 days.")
 
-            st.markdown('<div class="section-card">', unsafe_allow_html=True)
-            k1, k2, k3, k4 = st.columns(4)
-            with k1:
-                st.markdown(f'''<div class="kpi-card blue">
-                    <p class="kpi-label">Total Commissions</p>
-                    <p class="kpi-value">{_total}</p>
-                </div>''', unsafe_allow_html=True)
-            with k2:
-                st.markdown(f'''<div class="kpi-card red">
-                    <p class="kpi-label">Mismatch</p>
-                    <p class="kpi-value">{_mismatch}</p>
-                </div>''', unsafe_allow_html=True)
-            with k3:
-                st.markdown(f'''<div class="kpi-card green">
-                    <p class="kpi-label">Match</p>
-                    <p class="kpi-value">{_match}</p>
-                </div>''', unsafe_allow_html=True)
-            with k4:
-                st.markdown(f'''<div class="kpi-card orange">
-                    <p class="kpi-label">Urgent (≤ 2 wks)</p>
-                    <p class="kpi-value">{_vu_count}</p>
-                </div>''', unsafe_allow_html=True)
-            st.markdown('</div>', unsafe_allow_html=True)
-
-            # ── Tabbed results ───────────────────────────────────────────────────
-            tab1, tab2, tab3 = st.tabs([
-                f'🚨 Changeability Date ≤ 2 weeks ({_vu_count})',
-                f'📋 Changeability Date ≤ 60 days ({len(urgent)})',
-                f'📊 All Data ({_total})',
-            ])
-
-            def _render_tab(display_df, available_cols, tab_key, dl_label, dl_filename, empty_msg=None):
-                """Render a dataframe tab with checkbox row selection."""
-                if display_df.empty:
-                    if empty_msg:
-                        st.info(empty_msg)
-                    return
-                st.caption('Select a row using the checkbox on the left to view option code details.')
-                event = st.dataframe(
-                    display_df[available_cols].style.apply(_style_deadline, axis=None),
-                    on_select="rerun",
-                    selection_mode="single-row",
-                    use_container_width=True,
-                    key=f"df_{tab_key}",
-                )
-                if event.selection.rows:
-                    idx = event.selection.rows[0]
-                    row = display_df.iloc[idx]
-                    show_code_details(
-                        str(row.get("Commission no.", "")),
-                        str(row.get("Only_in_SAM", "")),
-                        str(row.get("Only_in_WINGS", "")),
-                        str(row.get("Factory Control Codes", "")),
-                        str(row.get("_all_wings_codes", "")),
-                        str(row.get("_all_sam_codes", "")),
-                        vehicle_row=row.to_dict(),
-                    )
-                st.download_button(
-                    f'📥 {dl_label}',
-                    data=to_excel_bytes(display_df),
-                    file_name=dl_filename,
-                    key=f'dl_{tab_key}',
-                )
-
-            with tab1:
-                if not very_urgent.empty:
-                    available = [c for c in cols_table if c in very_urgent.columns]
-                    available_with_hidden = available + [c for c in _hidden_cols if c in very_urgent.columns]
-                    very_urgent_display = very_urgent[available_with_hidden].reset_index(drop=True)
-                    _render_tab(very_urgent_display, available, 'very_urgent',
-                                'Download Urgent (≤ 2 weeks) Excel', 'urgent_2weeks.xlsx')
-                else:
-                    st.success("No urgent corrections needed within 2 weeks.")
-
-            with tab2:
-                if not urgent.empty:
-                    available = [c for c in cols_table if c in urgent.columns]
-                    available_with_hidden = available + [c for c in _hidden_cols if c in urgent.columns]
-                    urgent_display = urgent[available_with_hidden].reset_index(drop=True)
-                    _render_tab(urgent_display, available, '60days',
-                                'Download Changeability (≤ 60 days) Excel', 'changeability_60days.xlsx')
-                else:
-                    st.info("No corrections needed within 60 days.")
-
-            with tab3:
-                available_all = [c for c in cols_table if c in comp.columns]
-                available_all_with_hidden = available_all + [c for c in _hidden_cols if c in comp.columns]
-                all_display = comp[available_all_with_hidden].reset_index(drop=True)
-                _render_tab(all_display, available_all, 'all',
-                            'Download All Data Excel', 'afab_sam_comparison_all.xlsx')
+        with tab3:
+            available_all = [c for c in cols_table if c in comp.columns]
+            available_all_with_hidden = available_all + [c for c in _hidden_cols if c in comp.columns]
+            all_display = comp[available_all_with_hidden].reset_index(drop=True)
+            _render_tab(all_display, available_all, 'all',
+                        'Download All Data Excel', 'afab_sam_comparison_all.xlsx')
 
 
 if __name__ == '__main__':
